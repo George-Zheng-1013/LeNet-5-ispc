@@ -1,3 +1,4 @@
+//lenet.c
 #include "lenet.h"
 #include <memory.h>
 #include <time.h>
@@ -126,8 +127,11 @@ double relugrad(double y)
 {
 	return y > 0;
 }
+// 函数指针初始化
+double (*relu_ptr)(double) = relu;
+double (*relugrad_ptr)(double) = relugrad;
 
-static void forward(LeNet5 *lenet, Feature *features, double(*action)(double))
+void forward(LeNet5 *lenet, Feature *features, double(*action)(double))
 {
 	CONVOLUTION_FORWARD(features->input, features->layer1, lenet->weight0_1, lenet->bias0_1, action);
 	SUBSAMP_MAX_FORWARD(features->layer1, features->layer2);
@@ -137,7 +141,7 @@ static void forward(LeNet5 *lenet, Feature *features, double(*action)(double))
 	DOT_PRODUCT_FORWARD(features->layer5, features->output, lenet->weight5_6, lenet->bias5_6, action);
 }
 
-static void backward(LeNet5 *lenet, LeNet5 *deltas, Feature *errors, Feature *features, double(*actiongrad)(double))
+void backward(LeNet5 *lenet, LeNet5 *deltas, Feature *errors, Feature *features, double(*actiongrad)(double))
 {
 	DOT_PRODUCT_BACKWARD(features->layer5, errors->layer5, errors->output, lenet->weight5_6, deltas->weight5_6, deltas->bias5_6, actiongrad);
 	CONVOLUTION_BACKWARD(features->layer4, errors->layer4, errors->layer5, lenet->weight4_5, deltas->weight4_5, deltas->bias4_5, actiongrad);
@@ -187,7 +191,7 @@ static inline void softmax(double input[OUTPUT], double loss[OUTPUT], int label,
 	}
 }
 
-static void load_target(Feature *features, Feature *errors, int label)
+void load_target(Feature *features, Feature *errors, int label)
 {
 	double *output = (double *)features->output;
 	double *error = (double *)errors->output;
@@ -283,3 +287,4 @@ void Initial(LeNet5 *lenet)
 	for (double *pos = (double *)lenet->weight5_6; pos < (double *)lenet->bias0_1; *pos++ *= sqrt(6.0 / (LAYER5 + OUTPUT)));
 	for (int *pos = (int *)lenet->bias0_1; pos < (int *)(lenet + 1); *pos++ = 0);
 }
+
