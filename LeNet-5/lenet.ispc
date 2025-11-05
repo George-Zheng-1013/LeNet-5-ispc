@@ -21,6 +21,7 @@ export void conv_forward_ispc(
     uniform double weight[],   // weight[outC*inC*kH*kW]
     uniform double bias[])     // bias[outC]
 {
+    print(">>> ISPC conv_forward_ispc launched! <<<\n");
     // 输出通道并行
     foreach (o = 0 ... outC) {
         // 每个输出通道遍历每个输出像素

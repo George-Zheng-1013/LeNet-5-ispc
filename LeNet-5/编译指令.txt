@@ -1,0 +1,2 @@
+1.ispc lenet.ispc -o lenet.ispc.o -h lenet.ispc.h --target=avx2-i32x8
+2.gcc -O3 -fopenmp -march=native main.c lenet.c lenet.ispc.o -o LeNet5.exe -lm

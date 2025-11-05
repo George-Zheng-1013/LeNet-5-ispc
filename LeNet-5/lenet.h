@@ -16,33 +16,6 @@ uint8 Predict(LeNet5 *lenet, image input, const char(*resMat)[OUTPUT], uint8 cou
 初始化
 void Initial(LeNet5 *lenet);
 */
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-void conv_forward_ispc(
-    int outC, int inC,
-    int inH, int inW,
-    int kH, int kW,
-    int outH, int outW,
-    double input[],
-    double output[],
-    double weight[],
-    double bias[]
-);
-
-void dot_forward_ispc(
-    int inLen, int outLen,
-    double input[],
-    double output[],
-    double weight[],
-    double bias[]
-);
-
-#ifdef __cplusplus
-}
-#endif
-
 
 #pragma once
 
@@ -103,13 +76,12 @@ uint8 Predict(LeNet5 *lenet, image input, uint8 count);
 
 void Initial(LeNet5 *lenet);
 
-extern double (*relu_ptr)(double);
-extern double (*relugrad_ptr)(double);
-
+// 将 forward/backward/relu/relugrad 作为外部函数声明
+void forward(struct LeNet5* lenet, struct Feature* features, double(*action)(double));
+void backward(struct LeNet5* lenet, struct LeNet5* deltas, struct Feature* errors, struct Feature* features, double(*actiongrad)(double));
 double relu(double x);
 double relugrad(double y);
 
-void forward(LeNet5* lenet, Feature* features, double(*action)(double));
-void backward(LeNet5* lenet, LeNet5* deltas, Feature* errors, Feature* features, double(*actiongrad)(double));
+void load_input(Feature* features, image input);
 void load_target(Feature* features, Feature* errors, int label);
-
+double testing(LeNet5* lenet, image* test_data, uint8* test_label, int total_size);

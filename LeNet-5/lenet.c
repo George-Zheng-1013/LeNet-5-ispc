@@ -1,10 +1,11 @@
-//lenet.c
+﻿//lenet.c
 #include "lenet.h"
 #include <memory.h>
 #include <time.h>
 #include <stdlib.h>
 #include <math.h>
-
+#include <time.h>
+#include <omp.h>
 #define GETLENGTH(array) (sizeof(array)/sizeof(*(array)))
 
 #define GETCOUNT(array)  (sizeof(array)/sizeof(double))
@@ -127,9 +128,6 @@ double relugrad(double y)
 {
 	return y > 0;
 }
-// ����ָ���ʼ��
-double (*relu_ptr)(double) = relu;
-double (*relugrad_ptr)(double) = relugrad;
 
 void forward(LeNet5 *lenet, Feature *features, double(*action)(double))
 {
@@ -151,7 +149,7 @@ void backward(LeNet5 *lenet, LeNet5 *deltas, Feature *errors, Feature *features,
 	CONVOLUTION_BACKWARD(features->input, errors->input, errors->layer1, lenet->weight0_1, deltas->weight0_1, deltas->bias0_1, actiongrad);
 }
 
-static inline void load_input(Feature *features, image input)
+void load_input(Feature *features, image input)
 {
 	double (*layer0)[LENGTH_FEATURE0][LENGTH_FEATURE0] = features->input;
 	const long sz = sizeof(image) / sizeof(**input);
@@ -232,30 +230,60 @@ static double f64rand()
 }
 
 
-void TrainBatch(LeNet5 *lenet, image *inputs, uint8 *labels, int batchSize)
+#include <omp.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+void TrainBatch(LeNet5* lenet, image* inputs, uint8* labels, int batchSize)
 {
-	double buffer[GETCOUNT(LeNet5)] = { 0 };
-	int i = 0;
-#pragma omp parallel for
-	for (i = 0; i < batchSize; ++i)
+	int paramCount = GETCOUNT(LeNet5);
+	double* buffer = (double*)calloc(paramCount, sizeof(double));
+
+	// 并行批处理
+#pragma omp parallel
 	{
-		Feature features = { 0 };
-		Feature errors = { 0 };
-		LeNet5	deltas = { 0 };
-		load_input(&features, inputs[i]);
-		forward(lenet, &features, relu);
-		load_target(&features, &errors, labels[i]);
-		backward(lenet, &deltas, &errors, &features, relugrad);
-		#pragma omp critical
+		//使用堆内存而非栈上数组，避免线程栈溢出
+		double* local_buffer = (double*)calloc(paramCount, sizeof(double));
+		int i, j;
+
+#pragma omp for schedule(static)
+		for (i = 0; i < batchSize; ++i)
 		{
-			FOREACH(j, GETCOUNT(LeNet5))
-				buffer[j] += ((double *)&deltas)[j];
+			Feature features = { 0 };
+			Feature errors = { 0 };
+			LeNet5 deltas = { 0 };
+
+			// 每个线程独立执行 forward/backward，线程安全
+			load_input(&features, inputs[i]);
+			forward(lenet, &features, relu);
+			load_target(&features, &errors, labels[i]);
+			backward(lenet, &deltas, &errors, &features, relugrad);
+
+			// 累积当前样本的梯度
+			for (j = 0; j < paramCount; ++j)
+				local_buffer[j] += ((double*)&deltas)[j];
 		}
+
+		// 用 reduction 思路手动归约
+#pragma omp critical
+		{
+			for (j = 0; j < paramCount; ++j)
+				buffer[j] += local_buffer[j];
+		}
+
+		free(local_buffer);
 	}
+
+	// 权重更新
 	double k = ALPHA / batchSize;
-	FOREACH(i, GETCOUNT(LeNet5))
-		((double *)lenet)[i] += k * buffer[i];
+	int i;
+	for (i = 0; i < GETCOUNT(LeNet5); ++i)
+		((double*)lenet)[i] += k * buffer[i];
+
+	free(buffer);
 }
+
+
 
 void Train(LeNet5 *lenet, image input, uint8 label)
 {
@@ -280,6 +308,7 @@ uint8 Predict(LeNet5 *lenet, image input,uint8 count)
 
 void Initial(LeNet5 *lenet)
 {
+	srand(12345);//固定种子
 	for (double *pos = (double *)lenet->weight0_1; pos < (double *)lenet->bias0_1; *pos++ = f64rand());
 	for (double *pos = (double *)lenet->weight0_1; pos < (double *)lenet->weight2_3; *pos++ *= sqrt(6.0 / (LENGTH_KERNEL * LENGTH_KERNEL * (INPUT + LAYER1))));
 	for (double *pos = (double *)lenet->weight2_3; pos < (double *)lenet->weight4_5; *pos++ *= sqrt(6.0 / (LENGTH_KERNEL * LENGTH_KERNEL * (LAYER2 + LAYER3))));
@@ -287,4 +316,3 @@ void Initial(LeNet5 *lenet)
 	for (double *pos = (double *)lenet->weight5_6; pos < (double *)lenet->bias0_1; *pos++ *= sqrt(6.0 / (LAYER5 + OUTPUT)));
 	for (int *pos = (int *)lenet->bias0_1; pos < (int *)(lenet + 1); *pos++ = 0);
 }
-
