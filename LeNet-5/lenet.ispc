@@ -339,3 +339,37 @@ export void dot_backward_ispc(
         in_error[x] = sum;
     }
 }
+
+// ========================================
+// 前向传播：ReLU（新增）
+// ========================================
+export void relu_forward_ispc(
+    uniform int length,
+    uniform double input[],
+    uniform double output[]
+)
+{
+    // 向量化处理
+    foreach (i = 0 ... length) {
+        varying double val = input[i];
+        output[i] = max(val, (double)0.0);
+    }
+}
+
+// ========================================
+// 反向传播：ReLU（新增）
+// ========================================
+export void relu_backward_ispc(
+    uniform int length,
+    uniform double input[],
+    uniform double out_error[],
+    uniform double in_error[]
+)
+{
+    // 向量化处理
+    foreach (i = 0 ... length) {
+        varying double val = input[i];
+        varying double grad = (val > 0.0) ? 1.0 : 0.0;
+        in_error[i] = out_error[i] * grad;
+    }
+}
