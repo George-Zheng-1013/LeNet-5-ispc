@@ -26,6 +26,12 @@
     <ClInclude Include="lenet.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="lenet.ispc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="lenet_ispc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="t10k-images-idx3-ubyte">
@@ -43,5 +49,10 @@
     <None Include="lenet.ispc">
       <Filter>Source Files</Filter>
     </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Object Include="lenet.ispc.o">
+      <Filter>Source Files</Filter>
+    </Object>
   </ItemGroup>
 </Project>

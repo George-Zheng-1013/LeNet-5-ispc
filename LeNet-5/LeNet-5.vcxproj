@@ -68,7 +68,9 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
-  <PropertyGroup />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ExecutablePath>D:\ispc-v1.18.0-windows\bin;$(ExecutablePath)</ExecutablePath>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -147,6 +149,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="lenet.h" />
+    <ClInclude Include="lenet.ispc.h" />
+    <ClInclude Include="lenet_ispc.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="lenet.ispc" />
@@ -154,6 +158,9 @@
     <None Include="t10k-labels-idx1-ubyte" />
     <None Include="train-images-idx3-ubyte" />
     <None Include="train-labels-idx1-ubyte" />
+  </ItemGroup>
+  <ItemGroup>
+    <Object Include="lenet.ispc.o" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

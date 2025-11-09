@@ -1,161 +1,240 @@
-﻿#include "lenet.h"
+﻿//main.c
+#include "lenet.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
-#include <math.h>
+#include "lenet.ispc.h"  // ISPC 头文件
+#include <string.h>
 
-#define FILE_TRAIN_IMAGE    "train-images-idx3-ubyte"
-#define FILE_TRAIN_LABEL    "train-labels-idx1-ubyte"
-#define FILE_TEST_IMAGE     "t10k-images-idx3-ubyte"
-#define FILE_TEST_LABEL     "t10k-labels-idx1-ubyte"
-#define LENET_FILE          "model.dat"
-#define COUNT_TRAIN         60000
-#define COUNT_TEST          10000
+#define FILE_TRAIN_IMAGE		"train-images-idx3-ubyte"
+#define FILE_TRAIN_LABEL		"train-labels-idx1-ubyte"
+#define FILE_TEST_IMAGE		"t10k-images-idx3-ubyte"
+#define FILE_TEST_LABEL		"t10k-labels-idx1-ubyte"
+#define LENET_FILE 		"model.dat"
+#define COUNT_TRAIN		60000
+#define COUNT_TEST		10000
 
-// 外部 ISPC 接口
-extern void conv_forward_ispc(
-    int outC, int inC,
-    int inH, int inW,
-    int kH, int kW,
-    int outH, int outW,
-    double input[],
-    double output[],
-    double weight[],
-    double bias[]
-);
-extern void dot_forward_ispc(
-    int inLen, int outLen,
-    double input[],
-    double output[],
-    double weight[],
-    double bias[]
-);
 
-// 数据读取函数
 int read_data(unsigned char(*data)[28][28], unsigned char label[], const int count, const char data_file[], const char label_file[])
 {
-    FILE* fp_image = fopen(data_file, "rb");
-    FILE* fp_label = fopen(label_file, "rb");
-    if (!fp_image || !fp_label) return 1;
-    fseek(fp_image, 16, SEEK_SET);
-    fseek(fp_label, 8, SEEK_SET);
-    fread(data, sizeof(*data) * count, 1, fp_image);
-    fread(label, count, 1, fp_label);
-    fclose(fp_image);
-    fclose(fp_label);
-    return 0;
+    FILE *fp_image = fopen(data_file, "rb");
+    FILE *fp_label = fopen(label_file, "rb");
+    if (!fp_image||!fp_label) return 1;
+	fseek(fp_image, 16, SEEK_SET);
+	fseek(fp_label, 8, SEEK_SET);
+	fread(data, sizeof(*data)*count, 1, fp_image);
+	fread(label,count, 1, fp_label);
+	fclose(fp_image);
+	fclose(fp_label);
+	return 0;
 }
 
-// 测试函数
-double testing(LeNet5* lenet, image* test_data, uint8* test_label, int total_size)
+void training(LeNet5 *lenet, image *train_data, uint8 *train_label, int batch_size, int total_size)
 {
-    int right = 0;
-    for (int i = 0; i < total_size; ++i)
-    {
-        uint8 l = test_label[i];
-        int p = Predict(lenet, test_data[i], 10);
-        right += l == p;
-    }
-    return (double)right / total_size * 100.0;
+	for (int i = 0, percent = 0; i <= total_size - batch_size; i += batch_size)
+	{
+		TrainBatch(lenet, train_data + i, train_label + i, batch_size);
+		if (i * 100 / total_size > percent)
+			printf("batchsize:%d\ttrain:%2d%%\n", batch_size, percent = i * 100 / total_size);
+	}
 }
 
-// 测试串行与并行训练的时间、准确率及加速比
-void run_comparison(int epochs)
+void training_parallel(LeNet5* lenet, image* train_data, uint8* train_label, int batch_size, int total_size)
 {
-    // ===== 分配训练和测试数据 =====
+	for (int b = 0; b < total_size; b += batch_size)
+	{
+		int actual_batch = (b + batch_size <= total_size) ? batch_size : (total_size - b);
+		for (int i = 0; i < actual_batch; ++i)
+		{
+			Feature features = { 0 };
+			Feature errors = { 0 };
+			LeNet5 deltas = { 0 };
+
+			// 1. 输入展平：32x32（含 padding）
+			double input_flat[1 * 32 * 32] = { 0 };
+			for (int h = 0; h < 28; ++h)
+				for (int w = 0; w < 28; ++w)
+					input_flat[(h + 2) * 32 + (w + 2)] = train_data[b + i][h][w] / 255.0;
+
+			// 2. 权重展平：6x1x5x5
+			double weight_flat[6 * 1 * 5 * 5];
+			for (int oc = 0; oc < 6; ++oc)
+				for (int ic = 0; ic < 1; ++ic)
+					for (int kh = 0; kh < 5; ++kh)
+						for (int kw = 0; kw < 5; ++kw)
+							weight_flat[oc * 1 * 5 * 5 + ic * 5 * 5 + kh * 5 + kw] = lenet->weight0_1[ic][oc][kh][kw];
+
+			// 3. ISPC 卷积前向（C1）
+			conv_forward_ispc(
+				6, 1, 32, 32, 5, 5, 28, 28,
+				input_flat,
+				(double*)features.layer1,
+				weight_flat,
+				lenet->bias0_1
+			);
+
+			// 4. 其余层串行（可后续并行）
+			forward(lenet, &features, relu);  // 注意：forward 中 C3 仍串行
+			load_target(&features, &errors, train_label[b + i]);
+			backward(lenet, &deltas, &errors, &features, relugrad);
+
+			// 5. 权重更新
+			double k = ALPHA / actual_batch;
+			for (int j = 0; j < sizeof(LeNet5) / sizeof(double); ++j)
+				((double*)lenet)[j] += k * ((double*)&deltas)[j];
+		}
+	}
+}
+
+double testing(LeNet5 *lenet, image *test_data, uint8 *test_label,int total_size)
+{
+	int right = 0, percent = 0;
+	for (int i = 0; i < total_size; ++i)
+	{
+		uint8 l = test_label[i];
+		int p = Predict(lenet, test_data[i], 10);
+		right += l == p;
+		if (i * 100 / total_size > percent)
+			printf("test:%2d%%\n", percent = i * 100 / total_size);
+	}
+	return (double)right / total_size * 100.0;
+}
+
+int save(LeNet5 *lenet, char filename[])
+{
+	FILE *fp = fopen(filename, "wb");
+	if (!fp) return 1;
+	fwrite(lenet, sizeof(LeNet5), 1, fp);
+	fclose(fp);
+	return 0;
+}
+
+int load(LeNet5 *lenet, char filename[])
+{
+	FILE *fp = fopen(filename, "rb");
+	if (!fp) return 1;
+	fread(lenet, sizeof(LeNet5), 1, fp);
+	fclose(fp);
+	return 0;
+}
+
+
+
+void foo()
+{
     image* train_data = (image*)calloc(COUNT_TRAIN, sizeof(image));
     uint8* train_label = (uint8*)calloc(COUNT_TRAIN, sizeof(uint8));
     image* test_data = (image*)calloc(COUNT_TEST, sizeof(image));
     uint8* test_label = (uint8*)calloc(COUNT_TEST, sizeof(uint8));
 
-    if (read_data(train_data, train_label, COUNT_TRAIN, FILE_TRAIN_IMAGE, FILE_TRAIN_LABEL) ||
-        read_data(test_data, test_label, COUNT_TEST, FILE_TEST_IMAGE, FILE_TEST_LABEL))
+    if (read_data(train_data, train_label, COUNT_TRAIN, FILE_TRAIN_IMAGE, FILE_TRAIN_LABEL))
     {
-        printf("ERROR: Dataset not found!\n");
-        free(train_data); free(train_label); free(test_data); free(test_label);
+        printf("ERROR!!! Dataset File Not Find!\n");
+        system("pause");
+        return;
+    }
+    if (read_data(test_data, test_label, COUNT_TEST, FILE_TEST_IMAGE, FILE_TEST_LABEL))
+    {
+        printf("ERROR!!! Dataset File Not Find!\n");
         system("pause");
         return;
     }
 
-    const int TRAIN_SUBSET = 6000;  // 适中训练量
-    const int batchSize = 300;
-    const int total_batches = TRAIN_SUBSET / batchSize;
-
-    // ===== 创建两个模型并初始化（保证初始权重相同） =====
     LeNet5* lenet_serial = (LeNet5*)malloc(sizeof(LeNet5));
     LeNet5* lenet_parallel = (LeNet5*)malloc(sizeof(LeNet5));
+
+    // ===== 强制每次都重新初始化！避免 load 旧模型 =====
     Initial(lenet_serial);
-    Initial(lenet_parallel);
+    memcpy(lenet_parallel, lenet_serial, sizeof(LeNet5));
 
-    // ===== 先单独训练串行模型 =====
-    clock_t start_serial = clock();
-    for (int e = 0; e < epochs; ++e)
+    // 可选：删除旧模型文件，防止干扰
+    remove(LENET_FILE);
+
+    int batches[] = { 300 };
+
+    // ==================== 串行训练（真串行）================
+    printf("=== Serial Training ===\n");
+    clock_t start_s = clock();
+    for (int i = 0; i < sizeof(batches) / sizeof(*batches); ++i)
     {
-        printf("=== Epoch %d/%d (Serial) ===\n", e + 1, epochs);
-
-        for (int b = 0; b < total_batches; ++b)
+        int batch_size = batches[i];
+        int percent = 0;
+        for (int b = 0; b < COUNT_TRAIN; b += batch_size)
         {
-            int offset = b * batchSize;
-            TrainBatch(lenet_serial, train_data + offset, train_label + offset, batchSize);
+            int actual_batch = (b + batch_size <= COUNT_TRAIN) ? batch_size : (COUNT_TRAIN - b);
+            // 仅修改这一行：从 TrainBatch → TrainBatch_serial
+            TrainBatch_serial(lenet_serial, train_data + b, train_label + b, actual_batch);
+            int current_percent = (b + actual_batch) * 100 / COUNT_TRAIN;
+            if (current_percent > percent)
+            {
+                printf("batchsize:%d train:%2d%%\n", batch_size, current_percent);
+                percent = current_percent;
+            }
         }
-
-        double acc_serial = testing(lenet_serial, test_data, test_label, COUNT_TEST);
-        printf("Serial   -> Accuracy: %.2f%%\n", acc_serial);
     }
-    double time_serial = (double)(clock() - start_serial) / CLOCKS_PER_SEC;
+    double acc_s = testing(lenet_serial, test_data, test_label, COUNT_TEST);
+    clock_t end_s = clock();
+    double elapsed_s = (double)(end_s - start_s) / CLOCKS_PER_SEC;
+    printf("Serial  Accuracy: %.2f%%\n", acc_s);
+    printf("Serial  Time: %.3f s\n", elapsed_s);
 
-    // ===== 再单独训练并行模型 =====
-    clock_t start_parallel = clock();
-    for (int e = 0; e < epochs; ++e)
+    // ==================== 并行训练 ====================
+    printf("\n=== ISPC Parallel Training ===\n");
+    clock_t start_p = clock();
+    for (int i = 0; i < sizeof(batches) / sizeof(*batches); ++i)
     {
-        printf("=== Epoch %d/%d (Parallel) ===\n", e + 1, epochs);
-
-        for (int b = 0; b < total_batches; ++b)
+        int batch_size = batches[i];
+        int percent = 0;
+        for (int b = 0; b < COUNT_TRAIN; b += batch_size)
         {
-            int offset = b * batchSize;
-            TrainBatch(lenet_parallel, train_data + offset, train_label + offset, batchSize);
+            int actual_batch = (b + batch_size <= COUNT_TRAIN) ? batch_size : (COUNT_TRAIN - b);
+            TrainBatch_parallel(lenet_parallel, train_data + b, train_label + b, actual_batch);
+
+            int current_percent = (b + actual_batch) * 100 / COUNT_TRAIN;
+            if (current_percent > percent)
+            {
+                printf("batchsize:%d train:%2d%%\n", batch_size, current_percent);
+                percent = current_percent;
+            }
         }
-
-        double acc_parallel = testing(lenet_parallel, test_data, test_label, COUNT_TEST);
-        printf("Parallel -> Accuracy: %.2f%%\n", acc_parallel);
     }
-    double time_parallel = (double)(clock() - start_parallel) / CLOCKS_PER_SEC;
+    double acc_p = testing(lenet_parallel, test_data, test_label, COUNT_TEST);
+    clock_t end_p = clock();
+    double elapsed_p = (double)(end_p - start_p) / CLOCKS_PER_SEC;
+    printf("ISPC  Accuracy: %.2f%%\n", acc_p);
+    printf("ISPC  Time: %.3f s\n", elapsed_p);
+    printf("Speedup: %.2fx\n", elapsed_s / elapsed_p);
 
-    // ===== 对比最终权重差异 =====
-    double max_diff = 0.0;
-    double* w1 = (double*)lenet_serial;
-    double* w2 = (double*)lenet_parallel;
-    for (int i = 0; i < sizeof(LeNet5) / sizeof(double); i++)
-    {
-        double d = fabs(w1[i] - w2[i]);
-        if (d > max_diff) max_diff = d;
-    }
+    printf("\n================= SUMMARY =================\n");
+    printf("Serial  Accuracy : %.5f%%\n", acc_s);
+    printf("Serial  Time     : %.3f s\n", elapsed_s);
+    printf("-------------------------------------------\n");
+    printf("ISPC    Accuracy : %.5f%%\n", acc_p);
+    printf("ISPC    Time     : %.3f s\n", elapsed_p);
+    printf("-------------------------------------------\n");
+    printf("Speedup (S/P)    : %.2fx\n", elapsed_s / elapsed_p);
+    printf("===========================================\n\n");
 
-    // ===== 输出最终结果 =====
-    double final_acc_serial = testing(lenet_serial, test_data, test_label, COUNT_TEST);
-    double final_acc_parallel = testing(lenet_parallel, test_data, test_label, COUNT_TEST);
+    // 保存并行模型（用于调试，不影响下次运行）
+    save(lenet_parallel, LENET_FILE);
 
-    printf("\n===== FINAL RESULTS =====\n");
-    printf("Serial   -> Accuracy: %.2f%%, Total Time: %.3fs\n", final_acc_serial, time_serial);
-    printf("Parallel -> Accuracy: %.2f%%, Total Time: %.3fs\n", final_acc_parallel, time_parallel);
-    printf("Speedup: %.2fx\n", time_serial / time_parallel);
-    printf("Max weight difference: %.2e\n", max_diff);
+    // 可选：验证两个模型是否一致（应略有不同）
+    int diff = memcmp(lenet_serial, lenet_parallel, sizeof(LeNet5));
+    printf("Models identical: %s\n", diff ? "NO" : "YES");
 
-    // ===== 释放内存 =====
+    // 释放内存
     free(lenet_serial);
     free(lenet_parallel);
-    free(train_data); free(train_label);
-    free(test_data); free(test_label);
+    free(train_data);
+    free(train_label);
+    free(test_data);
+    free(test_label);
 
-    printf("\nPress any key to exit...\n");
     system("pause");
 }
 
-
-
-
 int main()
 {
-    run_comparison(5);// 训练 ? 个 epoch
-    return 0;
+	foo();
+	return 0;
 }
