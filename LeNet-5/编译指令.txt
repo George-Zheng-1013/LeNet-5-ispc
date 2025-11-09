@@ -1,3 +1,8 @@
+<<<<<<< Updated upstream
 ispc lenet.ispc -o lenet.ispc.obj -h lenet_ispc.h --target=avx2-i32x8 --arch=x86-64
 
 gcc -O3 -march=native main.c lenet.c lenet.ispc.o -o LeNet5.exe -lm
+=======
+1.      ispc lenet.ispc -o lenet.ispc.o -h lenet.ispc.h --target=avx2-i32x8
+2.      gcc -O3 -march=native main.c lenet.c lenet.ispc.o -o LeNet5.exe -lm
+>>>>>>> Stashed changes

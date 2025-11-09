@@ -3,7 +3,12 @@
 #include <time.h>
 #include <stdlib.h>
 #include <math.h>
+<<<<<<< Updated upstream
 #include <time.h>
+=======
+#include<stdio.h>
+
+>>>>>>> Stashed changes
 #define GETLENGTH(array) (sizeof(array)/sizeof(*(array)))
 
 #define GETCOUNT(array)  (sizeof(array)/sizeof(double))
@@ -159,7 +164,7 @@ void load_input(Feature *features, image input)
 		std += input[j][k] * input[j][k];
 	}
 	mean /= sz;
-	std = sqrt(std / sz - mean*mean);
+	std = sqrt(sz > 1 ? std / sz - mean*mean : 1);
 	FOREACH(j, sizeof(image) / sizeof(*input))
 		FOREACH(k, sizeof(*input) / sizeof(**input))
 	{
@@ -227,6 +232,7 @@ static double f64rand()
 	return *(double *)&lvalue - 3;
 }
 
+<<<<<<< Updated upstream
 void TrainBatch(LeNet5* lenet, image* inputs, uint8* labels, int batchSize)
 {
 	int paramCount = GETCOUNT(LeNet5);
@@ -239,10 +245,23 @@ void TrainBatch(LeNet5* lenet, image* inputs, uint8* labels, int batchSize)
 		Feature errors = { 0 };
 		LeNet5 deltas = { 0 };
 
+=======
+//纯串行的批量训练
+void TrainBatch(LeNet5 *lenet, image *inputs, uint8 *labels, int batchSize)
+{
+	double buffer[GETCOUNT(LeNet5)] = { 0 };
+	int i = 0;
+	for (i = 0; i < batchSize; ++i)
+	{
+		Feature features = { 0 };
+		Feature errors = { 0 };
+		LeNet5	deltas = { 0 };
+>>>>>>> Stashed changes
 		load_input(&features, inputs[i]);
 		forward(lenet, &features, relu);
 		load_target(&features, &errors, labels[i]);
 		backward(lenet, &deltas, &errors, &features, relugrad);
+<<<<<<< Updated upstream
 
 		// 绱Н姊害
 		for (int j = 0; j < paramCount; ++j)
@@ -252,11 +271,131 @@ void TrainBatch(LeNet5* lenet, image* inputs, uint8* labels, int batchSize)
 	// 鏉冮噸鏇存柊
 	double k = ALPHA / batchSize;
 	for (int i = 0; i < GETCOUNT(LeNet5); ++i)
+=======
+		
+		FOREACH(j, GETCOUNT(LeNet5))
+			buffer[j] += ((double *)&deltas)[j];
+	}
+	double k = ALPHA / batchSize;
+	FOREACH(i, GETCOUNT(LeNet5))
+		((double *)lenet)[i] += k * buffer[i];
+}
+
+// 串行训练（与TrainBatch相同，用于main.c中的对比）
+void TrainBatch_serial(LeNet5 *lenet, image *inputs, uint8 *labels, int batchSize)
+{
+	TrainBatch(lenet, inputs, labels, batchSize);
+}
+
+// ============================================================
+// ISPC 并行训练，C1/C3/C5/FC 前向
+// 反向传播仍全部用 backward() 以 确保结果和串行一致
+// ============================================================
+void TrainBatch_parallel(LeNet5* lenet, image* inputs, uint8* labels, int batchSize)
+{
+	double* buffer = (double*)calloc(GETCOUNT(LeNet5), sizeof(double));
+	if (!buffer) return;
+
+	// === 权重展平（只做一次，移到循环外！）===
+	double* w0_1 = (double*)malloc(6 * 1 * 5 * 5 * sizeof(double));
+	double* w2_3 = (double*)malloc(16 * 6 * 5 * 5 * sizeof(double));
+	double* w4_5 = (double*)malloc(120 * 16 * 5 * 5 * sizeof(double));
+
+	if (!w0_1 || !w2_3 || !w4_5) {
+		free(buffer);
+		free(w0_1);
+		free(w2_3);
+		free(w4_5);
+		return;
+	}
+
+	for (int o = 0; o < 6; o++) 
+		for (int c = 0; c < 1; c++) 
+			for (int kh = 0; kh < 5; kh++) 
+				for (int kw = 0; kw < 5; kw++)
+					w0_1[o * 1 * 25 + c * 25 + kh * 5 + kw] = lenet->weight0_1[c][o][kh][kw];
+
+	for (int o = 0; o < 16; o++) 
+		for (int c = 0; c < 6; c++) 
+			for (int kh = 0; kh < 5; kh++) 
+				for (int kw = 0; kw < 5; kw++)
+					w2_3[o * 6 * 25 + c * 25 + kh * 5 + kw] = lenet->weight2_3[c][o][kh][kw];
+
+	for (int o = 0; o < 120; o++) 
+		for (int c = 0; c < 16; c++) 
+			for (int kh = 0; kh < 5; kh++) 
+				for (int kw = 0; kw < 5; kw++)
+					w4_5[o * 16 * 25 + c * 25 + kh * 5 + kw] = lenet->weight4_5[c][o][kh][kw];
+
+	// === 批量处理每个样本 ===
+	for (int i = 0; i < batchSize; ++i)
+	{
+		Feature features = { 0 };
+		Feature errors = { 0 };
+		LeNet5  deltas = { 0 };
+
+		// === 1. 输入层归一化 + 填充 features.input（backward需要！）===
+		double mean = 0, std = 0;
+		for (int h = 0; h < 28; ++h)
+			for (int w = 0; w < 28; ++w) {
+				double val = inputs[i][h][w];
+				mean += val;
+				std += val * val;
+			}
+		mean /= (28 * 28);
+		std = sqrt(std / (28 * 28) - mean * mean);
+		if (std < 1e-8) std = 1.0;
+
+		// **关键修复**: 正确填充 features.input（供 backward 使用）
+		for (int h = 0; h < 28; ++h)
+			for (int w = 0; w < 28; ++w)
+				features.input[0][h + PADDING][w + PADDING] = (inputs[i][h][w] - mean) / std;
+
+		// flatten + padding (C1输入 1*32*32) 用于 ISPC
+		double input_flat[1 * 32 * 32] = { 0 };
+		for (int h = 0; h < 28; ++h)
+			for (int w = 0; w < 28; ++w)
+				input_flat[0 * 32 * 32 + (h + 2) * 32 + (w + 2)] = (inputs[i][h][w] - mean) / std;
+
+		// === 2. ISPC 前向传播（使用预先展平的权重）===
+		conv_forward_ispc(6, 1, 32, 32, 5, 5, 28, 28, input_flat, (double*)features.layer1, w0_1, lenet->bias0_1);
+		SUBSAMP_MAX_FORWARD(features.layer1, features.layer2);
+
+		conv_forward_ispc(16, 6, 14, 14, 5, 5, 10, 10, (double*)features.layer2, (double*)features.layer3, w2_3, lenet->bias2_3);
+		SUBSAMP_MAX_FORWARD(features.layer3, features.layer4);
+
+		conv_forward_ispc(120, 16, 5, 5, 5, 5, 1, 1, (double*)features.layer4, (double*)features.layer5, w4_5, lenet->bias4_5);
+
+		dot_forward_ispc(120, 10, (double*)features.layer5, features.output, (double*)lenet->weight5_6, (double*)lenet->bias5_6);
+
+		// === 3. 反向传播 ===
+		load_target(&features, &errors, labels[i]);
+		backward(lenet, &deltas, &errors, &features, relugrad);
+
+		// === 4. 累加梯度 ===
+		for (int j = 0; j < GETCOUNT(LeNet5); j++)
+			buffer[j] += ((double*)&deltas)[j];
+	}
+
+	// === 5. 更新模型 ===
+	double k = ALPHA / batchSize;
+	for (int i = 0; i < GETCOUNT(LeNet5); i++)
+>>>>>>> Stashed changes
 		((double*)lenet)[i] += k * buffer[i];
 
+	// 释放内存
+	free(w0_1);
+	free(w2_3);
+	free(w4_5);
 	free(buffer);
 }
 
+<<<<<<< Updated upstream
+=======
+
+
+
+>>>>>>> Stashed changes
 void Train(LeNet5 *lenet, image input, uint8 label)
 {
 	Feature features = { 0 };

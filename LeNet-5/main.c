@@ -49,6 +49,7 @@ int read_data(unsigned char(*data)[28][28], unsigned char label[], const int cou
 // 测试函数
 double testing(LeNet5* lenet, image* test_data, uint8* test_label, int total_size)
 {
+<<<<<<< Updated upstream
     int right = 0;
     for (int i = 0; i < total_size; ++i)
     {
@@ -57,6 +58,14 @@ double testing(LeNet5* lenet, image* test_data, uint8* test_label, int total_siz
         right += l == p;
     }
     return (double)right / total_size * 100.0;
+=======
+	for (int i = 0, percent = 0; i <= total_size - batch_size; i += batch_size)
+	{
+		TrainBatch_serial(lenet, train_data + i, train_label + i, batch_size);
+		if (i * 100 / total_size > percent)
+			printf("batchsize:%d\ttrain:%2d%%\n", batch_size, percent = i * 100 / total_size);
+	}
+>>>>>>> Stashed changes
 }
 
 // 测试串行与并行训练的时间、准确率及加速比
@@ -95,6 +104,7 @@ void run_comparison(int epochs)
 
         for (int b = 0; b < total_batches; ++b)
         {
+<<<<<<< Updated upstream
             int offset = b * batchSize;
             TrainBatch(lenet_serial, train_data + offset, train_label + offset, batchSize);
         }
@@ -130,6 +140,16 @@ void run_comparison(int epochs)
         {
             double d = fabs(w1[i] - w2[i]);
             if (d > max_diff) max_diff = d;
+=======
+            int actual_batch = (b + batch_size <= COUNT_TRAIN) ? batch_size : (COUNT_TRAIN - b);
+            TrainBatch(lenet_serial, train_data + b, train_label + b, actual_batch);
+            int current_percent = (b + actual_batch) * 100 / COUNT_TRAIN;
+            if (current_percent > percent)
+            {
+                printf("batchsize:%d train:%2d%%\n", batch_size, current_percent);
+                percent = current_percent;
+            }
+>>>>>>> Stashed changes
         }
     }
 
