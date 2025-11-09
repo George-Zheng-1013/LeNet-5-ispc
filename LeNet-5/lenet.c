@@ -1,14 +1,12 @@
-ï»¿#include "lenet.h"
+//lenet.c
+#include "lenet.h"
+#include "lenet.ispc.h"
 #include <memory.h>
 #include <time.h>
 #include <stdlib.h>
 #include <math.h>
-<<<<<<< Updated upstream
-#include <time.h>
-=======
 #include<stdio.h>
 
->>>>>>> Stashed changes
 #define GETLENGTH(array) (sizeof(array)/sizeof(*(array)))
 
 #define GETCOUNT(array)  (sizeof(array)/sizeof(double))
@@ -59,44 +57,52 @@
 }
 
 
-#define SUBSAMP_MAX_FORWARD(input,output)														\
-{																								\
-	const int len0 = GETLENGTH(*(input)) / GETLENGTH(*(output));								\
-	const int len1 = GETLENGTH(**(input)) / GETLENGTH(**(output));								\
-	FOREACH(i, GETLENGTH(output))																\
-	FOREACH(o0, GETLENGTH(*(output)))															\
-	FOREACH(o1, GETLENGTH(**(output)))															\
-	{																							\
-		int x0 = 0, x1 = 0, ismax;																\
-		FOREACH(l0, len0)																		\
-			FOREACH(l1, len1)																	\
-		{																						\
-			ismax = input[i][o0*len0 + l0][o1*len1 + l1] > input[i][o0*len0 + x0][o1*len1 + x1];\
-			x0 += ismax * (l0 - x0);															\
-			x1 += ismax * (l1 - x1);															\
-		}																						\
-		output[i][o0][o1] = input[i][o0*len0 + x0][o1*len1 + x1];								\
-	}																							\
+#define SUBSAMP_MAX_FORWARD(input, output) \
+{ \
+    const int len0 = GETLENGTH(*(input)) / GETLENGTH(*(output)); \
+    const int len1 = GETLENGTH(**(input)) / GETLENGTH(**(output)); \
+    FOREACH(i, GETLENGTH(output)) \
+    FOREACH(o0, GETLENGTH(*(output))) \
+    FOREACH(o1, GETLENGTH(**(output))) \
+    { \
+        int x0 = 0, x1 = 0; \
+        double maxval = input[i][o0*len0 + x0][o1*len1 + x1]; \
+        FOREACH(l0, len0) \
+        FOREACH(l1, len1) \
+        { \
+            double val = input[i][o0*len0 + l0][o1*len1 + l1]; \
+            if (val > maxval) { \
+                maxval = val; \
+                x0 = l0; \
+                x1 = l1; \
+            } \
+        } \
+        output[i][o0][o1] = maxval; \
+    } \
 }
 
-#define SUBSAMP_MAX_BACKWARD(input,inerror,outerror)											\
-{																								\
-	const int len0 = GETLENGTH(*(inerror)) / GETLENGTH(*(outerror));							\
-	const int len1 = GETLENGTH(**(inerror)) / GETLENGTH(**(outerror));							\
-	FOREACH(i, GETLENGTH(outerror))																\
-	FOREACH(o0, GETLENGTH(*(outerror)))															\
-	FOREACH(o1, GETLENGTH(**(outerror)))														\
-	{																							\
-		int x0 = 0, x1 = 0, ismax;																\
-		FOREACH(l0, len0)																		\
-			FOREACH(l1, len1)																	\
-		{																						\
-			ismax = input[i][o0*len0 + l0][o1*len1 + l1] > input[i][o0*len0 + x0][o1*len1 + x1];\
-			x0 += ismax * (l0 - x0);															\
-			x1 += ismax * (l1 - x1);															\
-		}																						\
-		inerror[i][o0*len0 + x0][o1*len1 + x1] = outerror[i][o0][o1];							\
-	}																							\
+#define SUBSAMP_MAX_BACKWARD(input, inerror, outerror) \
+{ \
+    const int len0 = GETLENGTH(*(inerror)) / GETLENGTH(*(outerror)); \
+    const int len1 = GETLENGTH(**(inerror)) / GETLENGTH(**(outerror)); \
+    FOREACH(i, GETLENGTH(outerror)) \
+    FOREACH(o0, GETLENGTH(*(outerror))) \
+    FOREACH(o1, GETLENGTH(**(outerror))) \
+    { \
+        int x0 = 0, x1 = 0; \
+        double maxval = input[i][o0*len0 + x0][o1*len1 + x1]; \
+        FOREACH(l0, len0) \
+        FOREACH(l1, len1) \
+        { \
+            double val = input[i][o0*len0 + l0][o1*len1 + l1]; \
+            if (val > maxval) { \
+                maxval = val; \
+                x0 = l0; \
+                x1 = l1; \
+            } \
+        } \
+        inerror[i][o0*len0 + x0][o1*len1 + x1] = outerror[i][o0][o1]; \
+    } \
 }
 
 #define DOT_PRODUCT_FORWARD(input,output,weight,bias,action)				\
@@ -131,6 +137,9 @@ double relugrad(double y)
 {
 	return y > 0;
 }
+// º¯ÊıÖ¸Õë³õÊ¼»¯
+double (*relu_ptr)(double) = relu;
+double (*relugrad_ptr)(double) = relugrad;
 
 void forward(LeNet5 *lenet, Feature *features, double(*action)(double))
 {
@@ -152,7 +161,7 @@ void backward(LeNet5 *lenet, LeNet5 *deltas, Feature *errors, Feature *features,
 	CONVOLUTION_BACKWARD(features->input, errors->input, errors->layer1, lenet->weight0_1, deltas->weight0_1, deltas->bias0_1, actiongrad);
 }
 
-void load_input(Feature *features, image input)
+static inline void load_input(Feature *features, image input)
 {
 	double (*layer0)[LENGTH_FEATURE0][LENGTH_FEATURE0] = features->input;
 	const long sz = sizeof(image) / sizeof(**input);
@@ -164,7 +173,7 @@ void load_input(Feature *features, image input)
 		std += input[j][k] * input[j][k];
 	}
 	mean /= sz;
-	std = sqrt(sz > 1 ? std / sz - mean*mean : 1);
+	std = sqrt(std / sz - mean*mean);
 	FOREACH(j, sizeof(image) / sizeof(*input))
 		FOREACH(k, sizeof(*input) / sizeof(**input))
 	{
@@ -209,8 +218,8 @@ static uint8 get_result(Feature *features, uint8 count)
 	{
 		if (output[i] > maxvalue)
 		{
-			maxvalue = output[i];
-			result = i;
+		 maxvalue = output[i];
+		 result = i;
 		}
 	}
 	return result;
@@ -232,109 +241,50 @@ static double f64rand()
 	return *(double *)&lvalue - 3;
 }
 
-<<<<<<< Updated upstream
+// ´¿´®ĞĞÑµÁ·º¯Êı£¨ÎŞOpenMP£©
 void TrainBatch(LeNet5* lenet, image* inputs, uint8* labels, int batchSize)
 {
-	int paramCount = GETCOUNT(LeNet5);
-	double* buffer = (double*)calloc(paramCount, sizeof(double));
-
-	// ä¸²è¡Œå¤„ç†æ¯ä¸ªæ ·æœ¬
-	for (int i = 0; i < batchSize; ++i)
+	double buffer[GETCOUNT(LeNet5)] = { 0 };
+	int i;
+	for (i = 0; i < batchSize; ++i)
 	{
 		Feature features = { 0 };
 		Feature errors = { 0 };
 		LeNet5 deltas = { 0 };
 
-=======
-//´¿´®ĞĞµÄÅúÁ¿ÑµÁ·
-void TrainBatch(LeNet5 *lenet, image *inputs, uint8 *labels, int batchSize)
-{
-	double buffer[GETCOUNT(LeNet5)] = { 0 };
-	int i = 0;
-	for (i = 0; i < batchSize; ++i)
-	{
-		Feature features = { 0 };
-		Feature errors = { 0 };
-		LeNet5	deltas = { 0 };
->>>>>>> Stashed changes
 		load_input(&features, inputs[i]);
 		forward(lenet, &features, relu);
 		load_target(&features, &errors, labels[i]);
 		backward(lenet, &deltas, &errors, &features, relugrad);
-<<<<<<< Updated upstream
 
-		// ç´¯ç§¯æ¢¯åº¦
-		for (int j = 0; j < paramCount; ++j)
+		// ÀÛ¼ÓÌİ¶È
+		for (int j = 0; j < GETCOUNT(LeNet5); ++j)
 			buffer[j] += ((double*)&deltas)[j];
 	}
 
-	// æƒé‡æ›´æ–°
+	// Ó¦ÓÃÌİ¶È¸üĞÂ
 	double k = ALPHA / batchSize;
 	for (int i = 0; i < GETCOUNT(LeNet5); ++i)
-=======
-		
-		FOREACH(j, GETCOUNT(LeNet5))
-			buffer[j] += ((double *)&deltas)[j];
-	}
-	double k = ALPHA / batchSize;
-	FOREACH(i, GETCOUNT(LeNet5))
-		((double *)lenet)[i] += k * buffer[i];
-}
-
-// ´®ĞĞÑµÁ·£¨ÓëTrainBatchÏàÍ¬£¬ÓÃÓÚmain.cÖĞµÄ¶Ô±È£©
-void TrainBatch_serial(LeNet5 *lenet, image *inputs, uint8 *labels, int batchSize)
-{
-	TrainBatch(lenet, inputs, labels, batchSize);
+		((double*)lenet)[i] += k * buffer[i];
 }
 
 // ============================================================
-// ISPC ²¢ĞĞÑµÁ·£¬C1/C3/C5/FC Ç°Ïò
-// ·´Ïò´«²¥ÈÔÈ«²¿ÓÃ backward() ÒÔ È·±£½á¹ûºÍ´®ĞĞÒ»ÖÂ
+// ISPC ²¢ĞĞÑµÁ·£¨C1/C3/C5/FC Ç°Ïò£©
+// ·´Ïò´«²¥ÍêÈ«¸´ÓÃ backward() ¡ú ×¼È·ÂÊÓë´®ĞĞÒ»ÖÂ
 // ============================================================
 void TrainBatch_parallel(LeNet5* lenet, image* inputs, uint8* labels, int batchSize)
 {
 	double* buffer = (double*)calloc(GETCOUNT(LeNet5), sizeof(double));
 	if (!buffer) return;
 
-	// === È¨ÖØÕ¹Æ½£¨Ö»×öÒ»´Î£¬ÒÆµ½Ñ­»·Íâ£¡£©===
-	double* w0_1 = (double*)malloc(6 * 1 * 5 * 5 * sizeof(double));
-	double* w2_3 = (double*)malloc(16 * 6 * 5 * 5 * sizeof(double));
-	double* w4_5 = (double*)malloc(120 * 16 * 5 * 5 * sizeof(double));
-
-	if (!w0_1 || !w2_3 || !w4_5) {
-		free(buffer);
-		free(w0_1);
-		free(w2_3);
-		free(w4_5);
-		return;
-	}
-
-	for (int o = 0; o < 6; o++) 
-		for (int c = 0; c < 1; c++) 
-			for (int kh = 0; kh < 5; kh++) 
-				for (int kw = 0; kw < 5; kw++)
-					w0_1[o * 1 * 25 + c * 25 + kh * 5 + kw] = lenet->weight0_1[c][o][kh][kw];
-
-	for (int o = 0; o < 16; o++) 
-		for (int c = 0; c < 6; c++) 
-			for (int kh = 0; kh < 5; kh++) 
-				for (int kw = 0; kw < 5; kw++)
-					w2_3[o * 6 * 25 + c * 25 + kh * 5 + kw] = lenet->weight2_3[c][o][kh][kw];
-
-	for (int o = 0; o < 120; o++) 
-		for (int c = 0; c < 16; c++) 
-			for (int kh = 0; kh < 5; kh++) 
-				for (int kw = 0; kw < 5; kw++)
-					w4_5[o * 16 * 25 + c * 25 + kh * 5 + kw] = lenet->weight4_5[c][o][kh][kw];
-
-	// === ÅúÁ¿´¦ÀíÃ¿¸öÑù±¾ ===
-	for (int i = 0; i < batchSize; ++i)
+	int i;
+	for (i = 0; i < batchSize; ++i)
 	{
 		Feature features = { 0 };
 		Feature errors = { 0 };
 		LeNet5  deltas = { 0 };
 
-		// === 1. ÊäÈë²ã¹éÒ»»¯ + Ìî³ä features.input£¨backwardĞèÒª£¡£©===
+		// === 1. ÊäÈë¹éÒ»»¯ + Ìî³ä ===
 		double mean = 0, std = 0;
 		for (int h = 0; h < 28; ++h)
 			for (int w = 0; w < 28; ++w) {
@@ -346,18 +296,27 @@ void TrainBatch_parallel(LeNet5* lenet, image* inputs, uint8* labels, int batchS
 		std = sqrt(std / (28 * 28) - mean * mean);
 		if (std < 1e-8) std = 1.0;
 
-		// **¹Ø¼üĞŞ¸´**: ÕıÈ·Ìî³ä features.input£¨¹© backward Ê¹ÓÃ£©
-		for (int h = 0; h < 28; ++h)
-			for (int w = 0; w < 28; ++w)
-				features.input[0][h + PADDING][w + PADDING] = (inputs[i][h][w] - mean) / std;
-
-		// flatten + padding (C1ÊäÈë 1*32*32) ÓÃÓÚ ISPC
+		// flatten + padding (C1ÊäÈë 1*32*32)
 		double input_flat[1 * 32 * 32] = { 0 };
 		for (int h = 0; h < 28; ++h)
 			for (int w = 0; w < 28; ++w)
 				input_flat[0 * 32 * 32 + (h + 2) * 32 + (w + 2)] = (inputs[i][h][w] - mean) / std;
 
-		// === 2. ISPC Ç°Ïò´«²¥£¨Ê¹ÓÃÔ¤ÏÈÕ¹Æ½µÄÈ¨ÖØ£©===
+		// === 2. È¨ÖØÕ¹Æ½ ===
+		double w0_1[6 * 1 * 5 * 5] = { 0 };
+		double w2_3[16 * 6 * 5 * 5] = { 0 };
+		double w4_5[120 * 16 * 5 * 5] = { 0 };
+
+		for (int o = 0; o < 6; o++) for (int c = 0; c < 1; c++) for (int kh = 0; kh < 5; kh++) for (int kw = 0; kw < 5; kw++)
+			w0_1[o * 1 * 25 + c * 25 + kh * 5 + kw] = lenet->weight0_1[c][o][kh][kw];
+
+		for (int o = 0; o < 16; o++) for (int c = 0; c < 6; c++) for (int kh = 0; kh < 5; kh++) for (int kw = 0; kw < 5; kw++)
+			w2_3[o * 6 * 25 + c * 25 + kh * 5 + kw] = lenet->weight2_3[c][o][kh][kw];
+
+		for (int o = 0; o < 120; o++) for (int c = 0; c < 16; c++) for (int kh = 0; kh < 5; kh++) for (int kw = 0; kw < 5; kw++)
+			w4_5[o * 16 * 25 + c * 25 + kh * 5 + kw] = lenet->weight4_5[c][o][kh][kw];
+
+		// === 3. ISPC Ç°Ïò´«²¥ ===
 		conv_forward_ispc(6, 1, 32, 32, 5, 5, 28, 28, input_flat, (double*)features.layer1, w0_1, lenet->bias0_1);
 		SUBSAMP_MAX_FORWARD(features.layer1, features.layer2);
 
@@ -368,34 +327,27 @@ void TrainBatch_parallel(LeNet5* lenet, image* inputs, uint8* labels, int batchS
 
 		dot_forward_ispc(120, 10, (double*)features.layer5, features.output, (double*)lenet->weight5_6, (double*)lenet->bias5_6);
 
-		// === 3. ·´Ïò´«²¥ ===
+		// === 4. ·´Ïò´«²¥ ===
 		load_target(&features, &errors, labels[i]);
 		backward(lenet, &deltas, &errors, &features, relugrad);
 
-		// === 4. ÀÛ¼ÓÌİ¶È ===
+		// === 5. ÀÛ¼ÓÌİ¶È ===
 		for (int j = 0; j < GETCOUNT(LeNet5); j++)
 			buffer[j] += ((double*)&deltas)[j];
 	}
 
-	// === 5. ¸üĞÂÄ£ĞÍ ===
+	// === 6. ¸üĞÂÄ£ĞÍ ===
 	double k = ALPHA / batchSize;
 	for (int i = 0; i < GETCOUNT(LeNet5); i++)
->>>>>>> Stashed changes
 		((double*)lenet)[i] += k * buffer[i];
 
-	// ÊÍ·ÅÄÚ´æ
-	free(w0_1);
-	free(w2_3);
-	free(w4_5);
 	free(buffer);
 }
 
-<<<<<<< Updated upstream
-=======
 
 
 
->>>>>>> Stashed changes
+
 void Train(LeNet5 *lenet, image input, uint8 label)
 {
 	Feature features = { 0 };
@@ -419,7 +371,6 @@ uint8 Predict(LeNet5 *lenet, image input,uint8 count)
 
 void Initial(LeNet5 *lenet)
 {
-	srand(12345);//å›ºå®šç§å­
 	for (double *pos = (double *)lenet->weight0_1; pos < (double *)lenet->bias0_1; *pos++ = f64rand());
 	for (double *pos = (double *)lenet->weight0_1; pos < (double *)lenet->weight2_3; *pos++ *= sqrt(6.0 / (LENGTH_KERNEL * LENGTH_KERNEL * (INPUT + LAYER1))));
 	for (double *pos = (double *)lenet->weight2_3; pos < (double *)lenet->weight4_5; *pos++ *= sqrt(6.0 / (LENGTH_KERNEL * LENGTH_KERNEL * (LAYER2 + LAYER3))));
@@ -427,3 +378,5 @@ void Initial(LeNet5 *lenet)
 	for (double *pos = (double *)lenet->weight5_6; pos < (double *)lenet->bias0_1; *pos++ *= sqrt(6.0 / (LAYER5 + OUTPUT)));
 	for (int *pos = (int *)lenet->bias0_1; pos < (int *)(lenet + 1); *pos++ = 0);
 }
+
+

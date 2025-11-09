@@ -1,8 +1,7 @@
 ﻿# LeNet-5神经网络
 
 ### 介绍
-根据YANN LECUN的论文《Gradient-based Learning Applied To Document Recognition》设计的LeNet-5神经网络，C语言写成。
-使用 ISPC (Intel SPMD Program Compiler) 进行并行加速。
+根据YANN LECUN的论文《Gradient-based Learning Applied To Document Recognition》设计的LeNet-5神经网络，C语言写成，不依赖任何第三方库。
 MNIST手写字符集初代训练识别率97%，多代训练识别率98%。
 
 ### DEMO
@@ -10,9 +9,7 @@ main.c文件为MNIST数据集的识别DEMO，直接编译即可运行，训练�
 
 ### 项目环境
 该项目为VISUAL STUDIO 2015项目，用VISUAL STUDIO 2015 UPDATE1及以上直接打开即可编译。采用ANSI C编写，因此源码无须修改即可在其它平台上编译。
-
-### 加速方案
-使用 ISPC 进行 SIMD 并行加速，提供高性能的卷积和全连接层计算。
+如果因缺少openmp无法编译，请将lenet.c中的#include&lt;omp.h&gt;和#pragma omp parallel for删除掉即可。
 
 ### API
 #####批量训练
