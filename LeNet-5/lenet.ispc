@@ -16,30 +16,50 @@ export void conv_forward_ispc(
     uniform int inH, uniform int inW,
     uniform int kH, uniform int kW,
     uniform int outH, uniform int outW,
-    uniform double input[],    // input[inC*inH*inW]
-    uniform double output[],   // output[outC*outH*outW]
+    uniform double input[],    // input[inC*inH*inW] - NCHW layout, W is innermost
+    uniform double output[],   // output[outC*outH*outW] - NCHW layout
     uniform double weight[],   // weight[outC*inC*kH*kW]
     uniform double bias[])     // bias[outC]
 {
     print(">>> ISPC conv_forward_ispc launched! <<<\n");
-    // 输出通道并行
-    foreach (o = 0 ... outC) {
-        // 每个输出通道遍历每个输出像素
-        for (int i0 = 0; i0 < outH; i0++)
-            for (int i1 = 0; i1 < outW; i1++) {
+    
+    // 遍历输出通道
+    for (uniform int o = 0; o < outC; o++) {
+        uniform double b = bias[o];
+        
+        // 遍历输出高度
+        for (uniform int oh = 0; oh < outH; oh++) {
+            // SIMD 并行在输出宽度上：一次处理多个相邻像素
+            foreach (ow = 0 ... outW) {
                 varying double sum = 0.0;
-                // 卷积累加，确保访问连续内存
-                for (int c = 0; c < inC; c++) {
-                    int input_base = c*inH*inW + i0*inW;
-                    int weight_base = o*inC*kH*kW + c*kH*kW;
-                    for (int kh = 0; kh < kH; kh++) {
-                        for (int kw = 0; kw < kW; kw++) {
-                            sum += input[input_base + kh*inW + kw] * weight[weight_base + kh*kW + kw];
+        
+                // 遍历输入通道
+                for (uniform int c = 0; c < inC; c++) {
+                    // 输入和权重的基地址
+                    uniform int input_channel_base = c * inH * inW;
+                    uniform int weight_channel_base = (o * inC + c) * kH * kW;
+     
+                    // 卷积核遍历
+                    for (uniform int kh = 0; kh < kH; kh++) {
+                        uniform int input_row_base = input_channel_base + (oh + kh) * inW;
+                        uniform int weight_row_base = weight_channel_base + kh * kW;
+           
+                        for (uniform int kw = 0; kw < kW; kw++) {
+                            // 关键：input[input_row_base + ow + kw]
+                            // 每个 lane 访问 ow 不同，但都是连续地址
+                            // 权重是 uniform，会被广播到所有 lane
+                            uniform double w = weight[weight_row_base + kw];
+                            varying double inp = input[input_row_base + ow + kw];
+                            sum += inp * w;
                         }
                     }
                 }
-                output[IDX_OUT(o,i0,i1,outH,outW)] = relu_ispc(sum + bias[o]);
+      
+                // 激活并写回，输出地址也是连续的
+                uniform int output_row_base = (o * outH + oh) * outW;
+                output[output_row_base + ow] = relu_ispc(sum + b);
             }
+        }
     }
 }
 

@@ -1,11 +1,9 @@
-﻿//lenet.c
-#include "lenet.h"
+﻿#include "lenet.h"
 #include <memory.h>
 #include <time.h>
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
-#include <omp.h>
 #define GETLENGTH(array) (sizeof(array)/sizeof(*(array)))
 
 #define GETCOUNT(array)  (sizeof(array)/sizeof(double))
@@ -229,61 +227,35 @@ static double f64rand()
 	return *(double *)&lvalue - 3;
 }
 
-
-#include <omp.h>
-#include <stdlib.h>
-#include <stdio.h>
-
 void TrainBatch(LeNet5* lenet, image* inputs, uint8* labels, int batchSize)
 {
 	int paramCount = GETCOUNT(LeNet5);
 	double* buffer = (double*)calloc(paramCount, sizeof(double));
 
-	// 并行批处理
-#pragma omp parallel
+	// 串行处理每个样本
+	for (int i = 0; i < batchSize; ++i)
 	{
-		//使用堆内存而非栈上数组，避免线程栈溢出
-		double* local_buffer = (double*)calloc(paramCount, sizeof(double));
-		int i, j;
+		Feature features = { 0 };
+		Feature errors = { 0 };
+		LeNet5 deltas = { 0 };
 
-#pragma omp for schedule(static)
-		for (i = 0; i < batchSize; ++i)
-		{
-			Feature features = { 0 };
-			Feature errors = { 0 };
-			LeNet5 deltas = { 0 };
+		load_input(&features, inputs[i]);
+		forward(lenet, &features, relu);
+		load_target(&features, &errors, labels[i]);
+		backward(lenet, &deltas, &errors, &features, relugrad);
 
-			// 每个线程独立执行 forward/backward，线程安全
-			load_input(&features, inputs[i]);
-			forward(lenet, &features, relu);
-			load_target(&features, &errors, labels[i]);
-			backward(lenet, &deltas, &errors, &features, relugrad);
-
-			// 累积当前样本的梯度
-			for (j = 0; j < paramCount; ++j)
-				local_buffer[j] += ((double*)&deltas)[j];
-		}
-
-		// 用 reduction 思路手动归约
-#pragma omp critical
-		{
-			for (j = 0; j < paramCount; ++j)
-				buffer[j] += local_buffer[j];
-		}
-
-		free(local_buffer);
+		// 累积梯度
+		for (int j = 0; j < paramCount; ++j)
+			buffer[j] += ((double*)&deltas)[j];
 	}
 
 	// 权重更新
 	double k = ALPHA / batchSize;
-	int i;
-	for (i = 0; i < GETCOUNT(LeNet5); ++i)
+	for (int i = 0; i < GETCOUNT(LeNet5); ++i)
 		((double*)lenet)[i] += k * buffer[i];
 
 	free(buffer);
 }
-
-
 
 void Train(LeNet5 *lenet, image input, uint8 label)
 {

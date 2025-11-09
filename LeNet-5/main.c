@@ -125,10 +125,12 @@ void run_comparison(int epochs)
     double max_diff = 0.0;
     double* w1 = (double*)lenet_serial;
     double* w2 = (double*)lenet_parallel;
-    for (int i = 0; i < sizeof(LeNet5) / sizeof(double); i++)
-    {
-        double d = fabs(w1[i] - w2[i]);
-        if (d > max_diff) max_diff = d;
+    if (w1 != NULL && w2 != NULL) {
+        for (int i = 0; i < sizeof(LeNet5) / sizeof(double); i++)
+        {
+            double d = fabs(w1[i] - w2[i]);
+            if (d > max_diff) max_diff = d;
+        }
     }
 
     // ===== 输出最终结果 =====
