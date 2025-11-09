@@ -150,11 +150,13 @@
   <ItemGroup>
     <ClInclude Include="lenet.h" />
     <ClInclude Include="lenet.ispc.h" />
-    <ClInclude Include="lenet_ispc.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="CRITICAL_BUG_FIX.md" />
     <None Include="lenet.ispc" />
     <None Include="lenet.ispc.s" />
+    <None Include="OPTIMIZATION_README.md" />
+    <None Include="PERFORMANCE_FIX.md" />
     <None Include="t10k-images-idx3-ubyte" />
     <None Include="t10k-labels-idx1-ubyte" />
     <None Include="train-images-idx3-ubyte" />

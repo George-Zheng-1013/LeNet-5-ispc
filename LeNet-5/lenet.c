@@ -269,22 +269,88 @@ void TrainBatch(LeNet5* lenet, image* inputs, uint8* labels, int batchSize)
 }
 
 // ============================================================
-// ISPC 并行训练（C1/C3/C5/FC 前向）
-// 反向传播完全复用 backward() → 准确率与串行一致
+// ISPC 并行训练（优化版）
 // ============================================================
 void TrainBatch_parallel(LeNet5* lenet, image* inputs, uint8* labels, int batchSize)
 {
+	// 一次性分配所有需要的内存
 	double* buffer = (double*)calloc(GETCOUNT(LeNet5), sizeof(double));
 	if (!buffer) return;
 
-	int i;
-	for (i = 0; i < batchSize; ++i)
+	// === 预先展平所有权重（只做一次）===
+	double* w0_1 = (double*)malloc(6 * 1 * 5 * 5 * sizeof(double));
+	double* w2_3 = (double*)malloc(16 * 6 * 5 * 5 * sizeof(double));
+	double* w4_5 = (double*)malloc(120 * 16 * 5 * 5 * sizeof(double));
+	
+	if (!w0_1 || !w2_3 || !w4_5) {
+		free(buffer);
+		free(w0_1); free(w2_3); free(w4_5);
+		return;
+	}
+
+	for (int o = 0; o < 6; o++)
+		for (int c = 0; c < 1; c++)
+			for (int kh = 0; kh < 5; kh++)
+				for (int kw = 0; kw < 5; kw++)
+					w0_1[o * 1 * 25 + c * 25 + kh * 5 + kw] = lenet->weight0_1[c][o][kh][kw];
+
+	for (int o = 0; o < 16; o++)
+		for (int c = 0; c < 6; c++)
+			for (int kh = 0; kh < 5; kh++)
+				for (int kw = 0; kw < 5; kw++)
+					w2_3[o * 6 * 25 + c * 25 + kh * 5 + kw] = lenet->weight2_3[c][o][kh][kw];
+
+	for (int o = 0; o < 120; o++)
+		for (int c = 0; c < 16; c++)
+			for (int kh = 0; kh < 5; kh++)
+				for (int kw = 0; kw < 5; kw++)
+					w4_5[o * 16 * 25 + c * 25 + kh * 5 + kw] = lenet->weight4_5[c][o][kh][kw];
+
+	// === 预分配反向传播权重梯度缓冲 ===
+	double* dw0_1 = (double*)malloc(6 * 1 * 5 * 5 * sizeof(double));
+	double* dw2_3 = (double*)malloc(16 * 6 * 5 * 5 * sizeof(double));
+	double* dw4_5 = (double*)malloc(120 * 16 * 5 * 5 * sizeof(double));
+	
+	if (!dw0_1 || !dw2_3 || !dw4_5) {
+		free(buffer); free(w0_1); free(w2_3); free(w4_5);
+		free(dw0_1); free(dw2_3); free(dw4_5);
+		return;
+	}
+
+	// === 预分配特征和误差缓冲（复用）===
+	double* input_flat = (double*)calloc(1 * 32 * 32, sizeof(double));
+	double* layer1_flat = (double*)calloc(6 * 28 * 28, sizeof(double));
+	double* layer2_flat = (double*)calloc(6 * 14 * 14, sizeof(double));
+	double* layer3_flat = (double*)calloc(16 * 10 * 10, sizeof(double));
+	double* layer4_flat = (double*)calloc(16 * 5 * 5, sizeof(double));
+	double* layer5_flat = (double*)calloc(120, sizeof(double));
+	
+	double* err_layer5 = (double*)calloc(120, sizeof(double));
+	double* err_layer4 = (double*)calloc(16 * 5 * 5, sizeof(double));
+	double* err_layer3 = (double*)calloc(16 * 10 * 10, sizeof(double));
+	double* err_layer2 = (double*)calloc(6 * 14 * 14, sizeof(double));
+	double* err_layer1 = (double*)calloc(6 * 28 * 28, sizeof(double));
+	
+	if (!input_flat || !layer1_flat || !layer2_flat || !layer3_flat || 
+	    !layer4_flat || !layer5_flat || !err_layer5 || !err_layer4 || 
+	    !err_layer3 || !err_layer2 || !err_layer1) {
+		free(buffer); free(w0_1); free(w2_3); free(w4_5);
+		free(dw0_1); free(dw2_3); free(dw4_5);
+		free(input_flat); free(layer1_flat); free(layer2_flat);
+		free(layer3_flat); free(layer4_flat); free(layer5_flat);
+		free(err_layer5); free(err_layer4); free(err_layer3);
+		free(err_layer2); free(err_layer1);
+		return;
+	}
+
+	// === 处理每个样本 ===
+	for (int i = 0; i < batchSize; ++i)
 	{
 		Feature features = { 0 };
 		Feature errors = { 0 };
 		LeNet5  deltas = { 0 };
 
-		// === 1. 输入归一化 + 填充 ===
+		// === 1. 输入归一化 + padding ===
 		double mean = 0, std = 0;
 		for (int h = 0; h < 28; ++h)
 			for (int w = 0; w < 28; ++w) {
@@ -296,57 +362,131 @@ void TrainBatch_parallel(LeNet5* lenet, image* inputs, uint8* labels, int batchS
 		std = sqrt(std / (28 * 28) - mean * mean);
 		if (std < 1e-8) std = 1.0;
 
-		// flatten + padding (C1输入 1*32*32)
-		double input_flat[1 * 32 * 32] = { 0 };
+		// 清零 input_flat（避免残留）
+		memset(input_flat, 0, 1 * 32 * 32 * sizeof(double));
 		for (int h = 0; h < 28; ++h)
 			for (int w = 0; w < 28; ++w)
 				input_flat[0 * 32 * 32 + (h + 2) * 32 + (w + 2)] = (inputs[i][h][w] - mean) / std;
 
-		// === 2. 权重展平 ===
-		double w0_1[6 * 1 * 5 * 5] = { 0 };
-		double w2_3[16 * 6 * 5 * 5] = { 0 };
-		double w4_5[120 * 16 * 5 * 5] = { 0 };
-
-		for (int o = 0; o < 6; o++) for (int c = 0; c < 1; c++) for (int kh = 0; kh < 5; kh++) for (int kw = 0; kw < 5; kw++)
-			w0_1[o * 1 * 25 + c * 25 + kh * 5 + kw] = lenet->weight0_1[c][o][kh][kw];
-
-		for (int o = 0; o < 16; o++) for (int c = 0; c < 6; c++) for (int kh = 0; kh < 5; kh++) for (int kw = 0; kw < 5; kw++)
-			w2_3[o * 6 * 25 + c * 25 + kh * 5 + kw] = lenet->weight2_3[c][o][kh][kw];
-
-		for (int o = 0; o < 120; o++) for (int c = 0; c < 16; c++) for (int kh = 0; kh < 5; kh++) for (int kw = 0; kw < 5; kw++)
-			w4_5[o * 16 * 25 + c * 25 + kh * 5 + kw] = lenet->weight4_5[c][o][kh][kw];
-
-		// === 3. ISPC 前向传播 ===
-		conv_forward_ispc(6, 1, 32, 32, 5, 5, 28, 28, input_flat, (double*)features.layer1, w0_1, lenet->bias0_1);
+		// === 2. ISPC 前向传播 ===
+		memset(layer1_flat, 0, 6 * 28 * 28 * sizeof(double));
+		conv_forward_ispc(6, 1, 32, 32, 5, 5, 28, 28, input_flat, layer1_flat, w0_1, lenet->bias0_1);
+		
+		// 复制到 features.layer1 用于后续处理
+		memcpy(features.layer1, layer1_flat, 6 * 28 * 28 * sizeof(double));
+		
 		SUBSAMP_MAX_FORWARD(features.layer1, features.layer2);
 
-		conv_forward_ispc(16, 6, 14, 14, 5, 5, 10, 10, (double*)features.layer2, (double*)features.layer3, w2_3, lenet->bias2_3);
+		memset(layer3_flat, 0, 16 * 10 * 10 * sizeof(double));
+		conv_forward_ispc(16, 6, 14, 14, 5, 5, 10, 10, (double*)features.layer2, layer3_flat, w2_3, lenet->bias2_3);
+		memcpy(features.layer3, layer3_flat, 16 * 10 * 10 * sizeof(double));
+		
 		SUBSAMP_MAX_FORWARD(features.layer3, features.layer4);
 
-		conv_forward_ispc(120, 16, 5, 5, 5, 5, 1, 1, (double*)features.layer4, (double*)features.layer5, w4_5, lenet->bias4_5);
+		memset(layer5_flat, 0, 120 * sizeof(double));
+		conv_forward_ispc(120, 16, 5, 5, 5, 5, 1, 1, (double*)features.layer4, layer5_flat, w4_5, lenet->bias4_5);
+		memcpy(features.layer5, layer5_flat, 120 * sizeof(double));
 
-		dot_forward_ispc(120, 10, (double*)features.layer5, features.output, (double*)lenet->weight5_6, (double*)lenet->bias5_6);
+		dot_forward_ispc(120, 10, layer5_flat, features.output, (double*)lenet->weight5_6, (double*)lenet->bias5_6);
 
-		// === 4. 反向传播 ===
+		// === 3. 反向传播（使用 ISPC）===
 		load_target(&features, &errors, labels[i]);
-		backward(lenet, &deltas, &errors, &features, relugrad);
+		
+		// FC 层反向（ISPC）
+		memset(err_layer5, 0, 120 * sizeof(double));
+		memset(deltas.bias5_6, 0, sizeof(deltas.bias5_6));
+		memset(deltas.weight5_6, 0, sizeof(deltas.weight5_6));
+		
+		dot_backward_ispc(120, 10, layer5_flat, features.output, 
+		                  errors.output, err_layer5,
+		                  (double*)lenet->weight5_6, 
+		                  (double*)deltas.weight5_6, 
+		                  deltas.bias5_6);
+		
+		memcpy(errors.layer5, err_layer5, 120 * sizeof(double));
+		
+		// C5 反向（ISPC）
+		memset(err_layer4, 0, 16 * 5 * 5 * sizeof(double));
+		memset(dw4_5, 0, 120 * 16 * 5 * 5 * sizeof(double));
+		memset(deltas.bias4_5, 0, sizeof(deltas.bias4_5));
+		
+		conv_backward_ispc(120, 16, 5, 5, 5, 5, 1, 1,
+		                   (double*)features.layer4, layer5_flat,
+		                   err_layer5, err_layer4,
+		                   w4_5, dw4_5, deltas.bias4_5);
+		
+		memcpy(errors.layer4, err_layer4, 16 * 5 * 5 * sizeof(double));
+		
+		// 将展平的梯度复制回原始结构
+		for (int o = 0; o < 120; o++)
+			for (int c = 0; c < 16; c++)
+				for (int kh = 0; kh < 5; kh++)
+					for (int kw = 0; kw < 5; kw++)
+						deltas.weight4_5[c][o][kh][kw] = dw4_5[o * 16 * 25 + c * 25 + kh * 5 + kw];
+		
+		// S4 反向（Max Pooling）
+		SUBSAMP_MAX_BACKWARD(features.layer3, errors.layer3, errors.layer4);
+		
+		// C3 反向（ISPC）
+		memset(err_layer2, 0, 6 * 14 * 14 * sizeof(double));
+		memset(dw2_3, 0, 16 * 6 * 5 * 5 * sizeof(double));
+		memset(deltas.bias2_3, 0, sizeof(deltas.bias2_3));
+		
+		conv_backward_ispc(16, 6, 14, 14, 5, 5, 10, 10,
+		                   (double*)features.layer2, (double*)features.layer3,
+		                   (double*)errors.layer3, err_layer2,
+		                   w2_3, dw2_3, deltas.bias2_3);
+		
+		memcpy(errors.layer2, err_layer2, 6 * 14 * 14 * sizeof(double));
+		
+		for (int o = 0; o < 16; o++)
+			for (int c = 0; c < 6; c++)
+				for (int kh = 0; kh < 5; kh++)
+					for (int kw = 0; kw < 5; kw++)
+						deltas.weight2_3[c][o][kh][kw] = dw2_3[o * 6 * 25 + c * 25 + kh * 5 + kw];
+		
+		// S2 反向
+		SUBSAMP_MAX_BACKWARD(features.layer1, errors.layer1, errors.layer2);
+		
+		// C1 反向（ISPC）
+		memset(dw0_1, 0, 6 * 1 * 5 * 5 * sizeof(double));
+		memset(deltas.bias0_1, 0, sizeof(deltas.bias0_1));
+		
+		double* err_input = (double*)calloc(1 * 32 * 32, sizeof(double));
+		if (err_input) {
+			conv_backward_ispc(6, 1, 32, 32, 5, 5, 28, 28,
+			                   input_flat, (double*)features.layer1,
+			                   (double*)errors.layer1, err_input,
+			                   w0_1, dw0_1, deltas.bias0_1);
+			
+			for (int o = 0; o < 6; o++)
+				for (int c = 0; c < 1; c++)
+					for (int kh = 0; kh < 5; kh++)
+						for (int kw = 0; kw < 5; kw++)
+							deltas.weight0_1[c][o][kh][kw] = dw0_1[o * 1 * 25 + c * 25 + kh * 5 + kw];
+			
+			free(err_input);
+		}
 
-		// === 5. 累加梯度 ===
+		// === 4. 累积梯度 ===
 		for (int j = 0; j < GETCOUNT(LeNet5); j++)
 			buffer[j] += ((double*)&deltas)[j];
 	}
 
-	// === 6. 更新模型 ===
+	// === 5. 更新模型 ===
 	double k = ALPHA / batchSize;
 	for (int i = 0; i < GETCOUNT(LeNet5); i++)
 		((double*)lenet)[i] += k * buffer[i];
 
+	// 释放所有内存
 	free(buffer);
+	free(w0_1); free(w2_3); free(w4_5);
+	free(dw0_1); free(dw2_3); free(dw4_5);
+	free(input_flat); free(layer1_flat); free(layer2_flat);
+	free(layer3_flat); free(layer4_flat); free(layer5_flat);
+	free(err_layer5); free(err_layer4); free(err_layer3);
+	free(err_layer2); free(err_layer1);
 }
-
-
-
-
 
 void Train(LeNet5 *lenet, image input, uint8 label)
 {
