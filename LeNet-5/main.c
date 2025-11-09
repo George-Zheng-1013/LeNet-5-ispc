@@ -29,7 +29,7 @@ int read_data(unsigned char(*data)[28][28], unsigned char label[], const int cou
 	return 0;
 }
 
-float testing(LeNet5 *lenet, image *test_data, uint8 *test_label,int total_size)
+double testing(LeNet5 *lenet, image *test_data, uint8 *test_label,int total_size)
 {
 	int right = 0, percent = 0;
 	for (int i = 0; i < total_size; ++i)
@@ -40,7 +40,7 @@ float testing(LeNet5 *lenet, image *test_data, uint8 *test_label,int total_size)
 		if (i * 100 / total_size > percent)
 			printf("test:%2d%%\n", percent = i * 100 / total_size);
 	}
-	return (float)right / total_size * 100.0;
+	return (double)right / total_size * 100.0;
 }
 
 int save(LeNet5 *lenet, char filename[])
@@ -114,9 +114,9 @@ void foo()
             }
         }
     }
-    float acc_s = testing(lenet_serial, test_data, test_label, COUNT_TEST);
+    double acc_s = testing(lenet_serial, test_data, test_label, COUNT_TEST);
     clock_t end_s = clock();
-    float elapsed_s = (float)(end_s - start_s) / CLOCKS_PER_SEC;
+    double elapsed_s = (double)(end_s - start_s) / CLOCKS_PER_SEC;
     printf("Serial  Accuracy: %.2f%%\n", acc_s);
     printf("Serial  Time: %.3f s\n", elapsed_s);
 
@@ -140,9 +140,9 @@ void foo()
             }
         }
     }
-    float acc_p = testing(lenet_parallel, test_data, test_label, COUNT_TEST);
+    double acc_p = testing(lenet_parallel, test_data, test_label, COUNT_TEST);
     clock_t end_p = clock();
-    float elapsed_p = (float)(end_p - start_p) / CLOCKS_PER_SEC;
+    double elapsed_p = (double)(end_p - start_p) / CLOCKS_PER_SEC;
     printf("ISPC  Accuracy: %.2f%%\n", acc_p);
     printf("ISPC  Time: %.3f s\n", elapsed_p);
     printf("Speedup: %.2fx\n", elapsed_s / elapsed_p);
