@@ -20,6 +20,7 @@ void Initial(LeNet5 *lenet);
 extern "C" {
 #endif
 
+// ISPC 卷积前向传播
 void conv_forward_ispc(
     int outC, int inC,
     int inH, int inW,
@@ -31,12 +32,34 @@ void conv_forward_ispc(
     double bias[]
 );
 
+// ISPC 全连接前向传播
 void dot_forward_ispc(
     int inLen, int outLen,
     double input[],
     double output[],
     double weight[],
     double bias[]
+);
+
+// ISPC Max Pooling 前向传播（新增）
+void maxpool_forward_ispc(
+    int channels,
+    int inH, int inW,
+    int outH, int outW,
+    int poolSize,
+    double input[],
+    double output[],
+    int indices[]  // 记录最大值位置
+);
+
+// ISPC Max Pooling 反向传播（新增）
+void maxpool_backward_ispc(
+    int channels,
+    int inH, int inW,
+    int outH, int outW,
+    double out_error[],
+    double in_error[],
+    int indices[]  // 使用前向传播记录的位置
 );
 
 #ifdef __cplusplus
@@ -95,6 +118,13 @@ typedef struct Feature
 	double output[OUTPUT];
 }Feature;
 
+// Max Pooling 索引缓冲结构（新增）
+typedef struct PoolIndices
+{
+	int layer2[LAYER2][LENGTH_FEATURE2][LENGTH_FEATURE2];
+	int layer4[LAYER4][LENGTH_FEATURE4][LENGTH_FEATURE4];
+}PoolIndices;
+
 //void TrainBatch(LeNet5 *lenet, image *inputs, uint8 *labels, int batchSize);
 
 void Train(LeNet5 *lenet, image input, uint8 label);
@@ -114,4 +144,5 @@ void backward(LeNet5* lenet, LeNet5* deltas, Feature* errors, Feature* features,
 void load_target(Feature* features, Feature* errors, int label);
 
 void TrainBatch(LeNet5* lenet, image* inputs, uint8* labels, int batchSize);
-void TrainBatch_parallel(LeNet5* lenet, image* inputs, uint8* labels, int batchSize);void TrainBatch_serial(LeNet5* lenet, image* inputs, uint8* labels, int batchSize);
+void TrainBatch_parallel(LeNet5* lenet, image* inputs, uint8* labels, int batchSize);
+void TrainBatch_serial(LeNet5* lenet, image* inputs, uint8* labels, int batchSize);
