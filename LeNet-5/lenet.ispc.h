@@ -32,14 +32,14 @@ namespace ispc { /* namespace */
 #if defined(__cplusplus) && (! defined(__ISPC_NO_EXTERN_C) || !__ISPC_NO_EXTERN_C )
 extern "C" {
 #endif // __cplusplus
-    extern void conv_backward_ispc(int32_t outC, int32_t inC, int32_t inH, int32_t inW, int32_t kH, int32_t kW, int32_t outH, int32_t outW, double * input, double * output, double * out_error, double * in_error, double * weight, double * dweight, double * dbias);
-    extern void conv_forward_ispc(int32_t outC, int32_t inC, int32_t inH, int32_t inW, int32_t kH, int32_t kW, int32_t outH, int32_t outW, double * input, double * output, double * weight, double * bias);
-    extern void dot_backward_ispc(int32_t inLen, int32_t outLen, double * input, double * output, double * out_error, double * in_error, double * weight, double * dweight, double * dbias);
-    extern void dot_forward_ispc(int32_t inLen, int32_t outLen, double * input, double * output, double * weight, double * bias);
-    extern void maxpool_backward_ispc(int32_t channels, int32_t inH, int32_t inW, int32_t outH, int32_t outW, double * out_error, double * in_error, int32_t * indices);
-    extern void maxpool_forward_ispc(int32_t channels, int32_t inH, int32_t inW, int32_t outH, int32_t outW, int32_t poolSize, double * input, double * output, int32_t * indices);
-    extern void relu_backward_ispc(int32_t length, double * input, double * out_error, double * in_error);
-    extern void relu_forward_ispc(int32_t length, double * input, double * output);
+    extern void conv_backward_ispc(int32_t outC, int32_t inC, int32_t inH, int32_t inW, int32_t kH, int32_t kW, int32_t outH, int32_t outW, float * input, float * output, float * out_error, float * in_error, float * weight, float * dweight, float * dbias);
+    extern void conv_forward_ispc(int32_t outC, int32_t inC, int32_t inH, int32_t inW, int32_t kH, int32_t kW, int32_t outH, int32_t outW, float * input, float * output, float * weight, float * bias);
+    extern void dot_backward_ispc(int32_t inLen, int32_t outLen, float * input, float * output, float * out_error, float * in_error, float * weight, float * dweight, float * dbias);
+    extern void dot_forward_ispc(int32_t inLen, int32_t outLen, float * input, float * output, float * weight, float * bias);
+    extern void maxpool_backward_ispc(int32_t channels, int32_t inH, int32_t inW, int32_t outH, int32_t outW, float * out_error, float * in_error, int32_t * indices);
+    extern void maxpool_forward_ispc(int32_t channels, int32_t inH, int32_t inW, int32_t outH, int32_t outW, int32_t poolSize, float * input, float * output, int32_t * indices);
+    extern void relu_backward_ispc(int32_t length, float * input, float * out_error, float * in_error);
+    extern void relu_forward_ispc(int32_t length, float * input, float * output);
 #if defined(__cplusplus) && (! defined(__ISPC_NO_EXTERN_C) || !__ISPC_NO_EXTERN_C )
 } /* end extern C */
 #endif // __cplusplus

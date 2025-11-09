@@ -26,19 +26,19 @@ void conv_forward_ispc(
     int inH, int inW,
     int kH, int kW,
     int outH, int outW,
-    double input[],
-    double output[],
-    double weight[],
-    double bias[]
+    float input[],
+    float output[],
+    float weight[],
+    float bias[]
 );
 
 // ISPC 全连接前向传播
 void dot_forward_ispc(
     int inLen, int outLen,
-    double input[],
-    double output[],
-    double weight[],
-    double bias[]
+    float input[],
+    float output[],
+    float weight[],
+    float bias[]
 );
 
 // ISPC Max Pooling 前向传播（新增）
@@ -47,8 +47,8 @@ void maxpool_forward_ispc(
     int inH, int inW,
     int outH, int outW,
     int poolSize,
-    double input[],
-    double output[],
+    float input[],
+    float output[],
     int indices[]  // 记录最大值位置
 );
 
@@ -57,8 +57,8 @@ void maxpool_backward_ispc(
     int channels,
     int inH, int inW,
     int outH, int outW,
-    double out_error[],
-    double in_error[],
+    float out_error[],
+    float in_error[],
     int indices[]  // 使用前向传播记录的位置
 );
 
@@ -95,27 +95,27 @@ typedef uint8 image[28][28];
 
 typedef struct LeNet5
 {
-	double weight0_1[INPUT][LAYER1][LENGTH_KERNEL][LENGTH_KERNEL];
-	double weight2_3[LAYER2][LAYER3][LENGTH_KERNEL][LENGTH_KERNEL];
-	double weight4_5[LAYER4][LAYER5][LENGTH_KERNEL][LENGTH_KERNEL];
-	double weight5_6[LAYER5 * LENGTH_FEATURE5 * LENGTH_FEATURE5][OUTPUT];
+	float weight0_1[INPUT][LAYER1][LENGTH_KERNEL][LENGTH_KERNEL];
+	float weight2_3[LAYER2][LAYER3][LENGTH_KERNEL][LENGTH_KERNEL];
+	float weight4_5[LAYER4][LAYER5][LENGTH_KERNEL][LENGTH_KERNEL];
+	float weight5_6[LAYER5 * LENGTH_FEATURE5 * LENGTH_FEATURE5][OUTPUT];
 
-	double bias0_1[LAYER1];
-	double bias2_3[LAYER3];
-	double bias4_5[LAYER5];
-	double bias5_6[OUTPUT];
+	float bias0_1[LAYER1];
+	float bias2_3[LAYER3];
+	float bias4_5[LAYER5];
+	float bias5_6[OUTPUT];
 
 }LeNet5;
 
 typedef struct Feature
 {
-	double input[INPUT][LENGTH_FEATURE0][LENGTH_FEATURE0];
-	double layer1[LAYER1][LENGTH_FEATURE1][LENGTH_FEATURE1];
-	double layer2[LAYER2][LENGTH_FEATURE2][LENGTH_FEATURE2];
-	double layer3[LAYER3][LENGTH_FEATURE3][LENGTH_FEATURE3];
-	double layer4[LAYER4][LENGTH_FEATURE4][LENGTH_FEATURE4];
-	double layer5[LAYER5][LENGTH_FEATURE5][LENGTH_FEATURE5];
-	double output[OUTPUT];
+	float input[INPUT][LENGTH_FEATURE0][LENGTH_FEATURE0];
+	float layer1[LAYER1][LENGTH_FEATURE1][LENGTH_FEATURE1];
+	float layer2[LAYER2][LENGTH_FEATURE2][LENGTH_FEATURE2];
+	float layer3[LAYER3][LENGTH_FEATURE3][LENGTH_FEATURE3];
+	float layer4[LAYER4][LENGTH_FEATURE4][LENGTH_FEATURE4];
+	float layer5[LAYER5][LENGTH_FEATURE5][LENGTH_FEATURE5];
+	float output[OUTPUT];
 }Feature;
 
 // Max Pooling 索引缓冲结构（新增）
@@ -133,14 +133,14 @@ uint8 Predict(LeNet5 *lenet, image input, uint8 count);
 
 void Initial(LeNet5 *lenet);
 
-extern double (*relu_ptr)(double);
-extern double (*relugrad_ptr)(double);
+extern float (*relu_ptr)(float);
+extern float (*relugrad_ptr)(float);
 
-double relu(double x);
-double relugrad(double y);
+float relu(float x);
+float relugrad(float y);
 
-void forward(LeNet5* lenet, Feature* features, double(*action)(double));
-void backward(LeNet5* lenet, LeNet5* deltas, Feature* errors, Feature* features, double(*actiongrad)(double));
+void forward(LeNet5* lenet, Feature* features, float(*action)(float));
+void backward(LeNet5* lenet, LeNet5* deltas, Feature* errors, Feature* features, float(*actiongrad)(float));
 void load_target(Feature* features, Feature* errors, int label);
 
 void TrainBatch(LeNet5* lenet, image* inputs, uint8* labels, int batchSize);

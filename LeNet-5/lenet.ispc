@@ -1,8 +1,8 @@
 // lenet.ispc - Optimized version with branch elimination and reduced redundant calculations
 
 // 优化的无分支 ReLU（修复类型匹配）
-inline varying double relu_ispc(varying double x) {
-    return max(x, (double)0.0);  // 显式转换为 double
+inline varying float relu_ispc(varying float x) {
+    return max(x, (float)0.0);  // 显式转换为 float
 }
 
 #define IDX3(c,h,w,H,W) ((c)*(H)*(W) + (h)*(W) + (w))
@@ -17,8 +17,8 @@ export void maxpool_forward_ispc(
     uniform int inH, uniform int inW,
     uniform int outH, uniform int outW,
     uniform int poolSize,
-    uniform double input[],
-    uniform double output[],
+    uniform float input[],
+    uniform float output[],
     uniform int indices[]  // 记录最大值位置，用于反向传播
 )
 {
@@ -35,7 +35,7 @@ export void maxpool_forward_ispc(
             
             // 向量化输出宽度
             foreach (ow = 0 ... outW) {
-                varying double maxval = -1e30;
+                varying float maxval = -1e30;
                 varying int maxIdx = 0;
                 varying int iw_base = ow * poolSize;  // 【优化】预计算列基址
                 
@@ -54,7 +54,7 @@ export void maxpool_forward_ispc(
                             
                             // 【优化】使用 select 消除分支
                             varying int inIdx = input_row_base + row_offset + iw;
-                            varying double val = select(iw < inW, input[inIdx], -1e30);
+                            varying float val = select(iw < inW, input[inIdx], -1e30);
                             
                             // 【优化】无分支更新（使用 select）
                             varying bool is_greater = (val > maxval);
@@ -79,8 +79,8 @@ export void maxpool_backward_ispc(
     uniform int channels,
     uniform int inH, uniform int inW,
     uniform int outH, uniform int outW,
-    uniform double out_error[],
-    uniform double in_error[],
+    uniform float out_error[],
+    uniform float in_error[],
     uniform int indices[]
 )
 {
@@ -103,7 +103,7 @@ export void maxpool_backward_ispc(
             foreach (ow = 0 ... outW) {
                 varying int outIdx = row_base + ow;
                 varying int maxIdx = indices[outIdx];
-                varying double err = out_error[outIdx];
+                varying float err = out_error[outIdx];
                 
                 // 原子累加（ISPC 自动处理冲突）
                 in_error[maxIdx] = in_error[maxIdx] + err;
@@ -120,8 +120,8 @@ export void conv_forward_ispc(
     uniform int inH, uniform int inW,
     uniform int kH, uniform int kW,
     uniform int outH, uniform int outW,
-    uniform double input[], uniform double output[],
-    uniform double weight[], uniform double bias[]
+    uniform float input[], uniform float output[],
+    uniform float weight[], uniform float bias[]
 )
 {
     uniform int stride_inHW = inH * inW;
@@ -130,7 +130,7 @@ export void conv_forward_ispc(
     uniform int stride_inC_weight = inC * kH * kW;
 
     for (uniform int o = 0; o < outC; o++) {
-        uniform double b = bias[o];
+        uniform float b = bias[o];
         uniform int out_base = o * stride_outHW;
         uniform int weight_o_base = o * stride_inC_weight;
         
@@ -138,7 +138,7 @@ export void conv_forward_ispc(
             uniform int out_row_base = out_base + h * outW;  // 【优化】预计算输出行基址
             
             foreach (w = 0 ... outW) {
-                varying double sum = b;
+                varying float sum = b;
                 
                 for (uniform int c = 0; c < inC; c++) {
                     uniform int input_c_base = c * stride_inHW;
@@ -158,7 +158,7 @@ export void conv_forward_ispc(
                                 varying int iw = w + kw;
                                 
                                 // 【优化】使用 select 替代条件运算符
-                                varying double inp = select(iw < inW, input[input_row_base + iw], 0.0);
+                                varying float inp = select(iw < inW, input[input_row_base + iw], 0.0);
                                 
                                 // 【优化】使用 FMA 指令
                                 sum = fma(inp, weight[weight_kh_base + kw], sum);
@@ -177,16 +177,16 @@ export void conv_forward_ispc(
 // ========================================
 export void dot_forward_ispc(
     uniform int inLen, uniform int outLen,
-    uniform double input[], uniform double output[],
-    uniform double weight[], uniform double bias[]
+    uniform float input[], uniform float output[],
+    uniform float weight[], uniform float bias[]
 )
 {
     foreach (y = 0 ... outLen) {
-        varying double sum = bias[y];
+        varying float sum = bias[y];
         
         // 【优化】使用 FMA 指令
         for (uniform int x = 0; x < inLen; x++) {
-            uniform double inp = input[x];
+            uniform float inp = input[x];
             sum = fma(inp, weight[x * outLen + y], sum);
         }
         output[y] = relu_ispc(sum);
@@ -201,10 +201,10 @@ export void conv_backward_ispc(
     uniform int inH, uniform int inW,
     uniform int kH, uniform int kW,
     uniform int outH, uniform int outW,
-    uniform double input[], uniform double output[],
-    uniform double out_error[], uniform double in_error[],
-    uniform double weight[], uniform double dweight[],
-    uniform double dbias[]
+    uniform float input[], uniform float output[],
+    uniform float out_error[], uniform float in_error[],
+    uniform float weight[], uniform float dweight[],
+    uniform float dbias[]
 )
 {
     uniform int stride_inHW = inH * inW;
@@ -228,7 +228,7 @@ export void conv_backward_ispc(
     // 1. 偏置梯度
     for (uniform int o = 0; o < outC; o++) {
         uniform int out_base = o * stride_outHW;
-        varying double sum = 0.0;
+        varying float sum = 0.0;
         
         foreach (hw = 0 ... (outH * outW)) {
             sum += out_error[out_base + hw];
@@ -249,7 +249,7 @@ export void conv_backward_ispc(
                 uniform int weight_row_base = weight_oc_base + kh * kW;  // 【优化】预计算
                 
                 for (uniform int kw = 0; kw < kW; kw++) {
-                    varying double sum = 0.0;
+                    varying float sum = 0.0;
                     
                     for (uniform int h = 0; h < outH; h++) {
                         uniform int ih = h + kh;
@@ -263,8 +263,8 @@ export void conv_backward_ispc(
                                 varying int iw = w + kw;
                                 
                                 // 【优化】使用 select 消除分支
-                                varying double inp = select(iw < inW, input[input_row_base + iw], 0.0);
-                                varying double err = out_error[out_row_base + w];
+                                varying float inp = select(iw < inW, input[input_row_base + iw], 0.0);
+                                varying float err = out_error[out_row_base + w];
                                 
                                 // 【优化】使用 FMA
                                 sum = fma(inp, err, sum);
@@ -285,7 +285,7 @@ export void conv_backward_ispc(
             uniform int input_row_base = input_c_base + ih * inW;  // 【优化】预计算
             
             foreach (iw = 0 ... inW) {
-                varying double sum = 0.0;
+                varying float sum = 0.0;
                 
                 for (uniform int o = 0; o < outC; o++) {
                     uniform int out_base = o * stride_outHW;
@@ -307,10 +307,10 @@ export void conv_backward_ispc(
                                 varying int ow = iw - kw;
                                 if (ow >= 0 && ow < outW) {
                                     varying int out_idx = out_row_base + ow;
-                                    varying double err = out_error[out_idx];
-                                    varying double out_val = output[out_idx];
+                                    varying float err = out_error[out_idx];
+                                    varying float out_val = output[out_idx];
                                     // ReLU 梯度
-                                    varying double grad = err * select(out_val > 0.0, 1.0, 0.0);
+                                    varying float grad = err * select(out_val > 0.0, 1.0, 0.0);
                                     sum += weight[weight_row_base + kw] * grad;
                                 }
                             }
@@ -328,10 +328,10 @@ export void conv_backward_ispc(
 // ========================================
 export void dot_backward_ispc(
     uniform int inLen, uniform int outLen,
-    uniform double input[], uniform double output[],
-    uniform double out_error[], uniform double in_error[],
-    uniform double weight[], uniform double dweight[],
-    uniform double dbias[]
+    uniform float input[], uniform float output[],
+    uniform float out_error[], uniform float in_error[],
+    uniform float weight[], uniform float dweight[],
+    uniform float dbias[]
 )
 {
     // 1. 偏置梯度
@@ -341,25 +341,25 @@ export void dot_backward_ispc(
 
     // 2. 权重梯度（优化版 - FMA + select）
     foreach (x = 0 ... inLen, y = 0 ... outLen) {
-        varying double err = out_error[y];
-        varying double out_val = output[y];
+        varying float err = out_error[y];
+        varying float out_val = output[y];
         
         // 【优化】使用 select 消除分支
-        varying double grad = err * select(out_val > 0.0, 1.0, 0.0);
+        varying float grad = err * select(out_val > 0.0, 1.0, 0.0);
         
         dweight[x * outLen + y] = input[x] * grad;
     }
 
     // 3. 输入误差（优化版 - FMA + select）
     foreach (x = 0 ... inLen) {
-        varying double sum = 0.0;
+        varying float sum = 0.0;
         
         for (uniform int y = 0; y < outLen; y++) {
-            uniform double err = out_error[y];
-            uniform double out_val = output[y];
+            uniform float err = out_error[y];
+            uniform float out_val = output[y];
             
             // 【优化】使用 select 消除分支
-            uniform double grad = err * select(out_val > 0.0, 1.0, 0.0);
+            uniform float grad = err * select(out_val > 0.0, 1.0, 0.0);
             
             // 【优化】使用 FMA
             sum = fma(weight[x * outLen + y], grad, sum);
@@ -373,13 +373,13 @@ export void dot_backward_ispc(
 // ========================================
 export void relu_forward_ispc(
     uniform int length,
-    uniform double input[],
-    uniform double output[]
+    uniform float input[],
+    uniform float output[]
 )
 {
     foreach (i = 0 ... length) {
-        varying double val = input[i];
-        output[i] = max(val, (double)0.0);
+        varying float val = input[i];
+        output[i] = max(val, (float)0.0);
     }
 }
 
@@ -388,16 +388,16 @@ export void relu_forward_ispc(
 // ========================================
 export void relu_backward_ispc(
     uniform int length,
-    uniform double input[],
-    uniform double out_error[],
-    uniform double in_error[]
+    uniform float input[],
+    uniform float out_error[],
+    uniform float in_error[]
 )
 {
     foreach (i = 0 ... length) {
-        varying double val = input[i];
+        varying float val = input[i];
         
         // 【优化】使用 select 消除分支
-        varying double grad = select(val > 0.0, 1.0, 0.0);
+        varying float grad = select(val > 0.0, 1.0, 0.0);
         
         in_error[i] = out_error[i] * grad;
     }
