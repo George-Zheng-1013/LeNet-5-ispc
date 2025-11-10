@@ -29,16 +29,6 @@ int read_data(unsigned char(*data)[28][28], unsigned char label[], const int cou
 	return 0;
 }
 
-void training(LeNet5 *lenet, image *train_data, uint8 *train_label, int batch_size, int total_size)
-{
-	for (int i = 0, percent = 0; i <= total_size - batch_size; i += batch_size)
-	{
-		TrainBatch(lenet, train_data + i, train_label + i, batch_size);
-		if (i * 100 / total_size > percent)
-			printf("batchsize:%d\ttrain:%2d%%\n", batch_size, percent = i * 100 / total_size);
-	}
-}
-
 void training_parallel(LeNet5* lenet, image* train_data, uint8* train_label, int batch_size, int total_size)
 {
 	for (int b = 0; b < total_size; b += batch_size)

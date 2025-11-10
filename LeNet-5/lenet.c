@@ -242,31 +242,7 @@ static double f64rand()
 	return *(double *)&lvalue - 3;
 }
 
-//线程并行的伪串行
-void TrainBatch(LeNet5 *lenet, image *inputs, uint8 *labels, int batchSize)
-{
-	double buffer[GETCOUNT(LeNet5)] = { 0 };
-	int i = 0;
-#pragma omp parallel for
-	for (i = 0; i < batchSize; ++i)
-	{
-		Feature features = { 0 };
-		Feature errors = { 0 };
-		LeNet5	deltas = { 0 };
-		load_input(&features, inputs[i]);
-		forward(lenet, &features, relu);
-		load_target(&features, &errors, labels[i]);
-		backward(lenet, &deltas, &errors, &features, relugrad);
-		#pragma omp critical
-		{
-			FOREACH(j, GETCOUNT(LeNet5))
-				buffer[j] += ((double *)&deltas)[j];
-		}
-	}
-	double k = ALPHA / batchSize;
-	FOREACH(i, GETCOUNT(LeNet5))
-		((double *)lenet)[i] += k * buffer[i];
-}
+
 // 新增：真正的串行训练函数
 void TrainBatch_serial(LeNet5* lenet, image* inputs, uint8* labels, int batchSize)
 {

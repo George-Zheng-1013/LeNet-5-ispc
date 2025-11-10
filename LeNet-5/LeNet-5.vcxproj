@@ -150,17 +150,17 @@
   <ItemGroup>
     <ClInclude Include="lenet.h" />
     <ClInclude Include="lenet.ispc.h" />
-    <ClInclude Include="lenet_ispc.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="lenet.ispc" />
+    <None Include="lenet.ispc.s" />
     <None Include="t10k-images-idx3-ubyte" />
     <None Include="t10k-labels-idx1-ubyte" />
     <None Include="train-images-idx3-ubyte" />
     <None Include="train-labels-idx1-ubyte" />
   </ItemGroup>
   <ItemGroup>
-    <Object Include="lenet.ispc.o" />
+    <Object Include="lenet.ispc.obj" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
