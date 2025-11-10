@@ -5,6 +5,7 @@
 #include <time.h>
 #include "lenet.ispc.h"  // ISPC 头文件
 #include <string.h>
+#include <omp.h>
 
 #define FILE_TRAIN_IMAGE		"train-images-idx3-ubyte"
 #define FILE_TRAIN_LABEL		"train-labels-idx1-ubyte"
@@ -177,6 +178,9 @@ void foo()
 
 int main()
 {
+    // 设置 OpenMP 线程数（根据 CPU 核心数调整）
+    omp_set_num_threads(8);
+    
 	foo();
 	return 0;
 }

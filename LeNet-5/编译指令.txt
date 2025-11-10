@@ -1,2 +1,12 @@
 1.      ispc lenet.ispc -o lenet.ispc.o -h lenet.ispc.h --target=avx2-i32x8
-2.      gcc -O3 -march=native main.c lenet.c lenet.ispc.o -o LeNet5.exe -lm
+2.      gcc -O3 -march=native -fopenmp main.c lenet.c lenet.ispc.o -o LeNet5.exe -lm
+
+说明：
+- 对于 GCC/MinGW：添加 -fopenmp 标志
+- 对于 MSVC (Visual Studio)：在项目属性中启用 OpenMP 支持
+  (C/C++ → 语言 → OpenMP 支持 → 是 (/openmp))
+  
+注意：
+- OpenMP 将在样本级别并行化训练，每个线程处理独立的样本
+- ISPC 仍然负责单个样本内的 SIMD 向量化
+- 建议根据 CPU 核心数调整线程数：在 main.c 中调用 omp_set_num_threads(N)
