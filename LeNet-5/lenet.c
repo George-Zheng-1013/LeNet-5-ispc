@@ -1,11 +1,10 @@
-//lenet.c
 #include "lenet.h"
 #include "lenet.ispc.h"
 #include <memory.h>
 #include <time.h>
 #include <stdlib.h>
 #include <math.h>
-#include<stdio.h>
+#include <stdio.h>
 #include <omp.h>
 
 #define GETLENGTH(array) (sizeof(array)/sizeof(*(array)))
@@ -243,7 +242,6 @@ static double f64rand()
 }
 
 
-// 新增：真正的串行训练函数
 void TrainBatch_serial(LeNet5* lenet, image* inputs, uint8* labels, int batchSize)
 {
 	double buffer[GETCOUNT(LeNet5)] = { 0 };
@@ -282,12 +280,12 @@ void TrainBatch_parallel(LeNet5* lenet, image* inputs, uint8* labels, int batchS
 
 	int i;
 
-#pragma omp parallel private(i)
+	#pragma omp parallel private(i)
 	{
 		double* local_buffer = (double*)calloc(GETCOUNT(LeNet5), sizeof(double));
 		if (!local_buffer) goto merge;
 
-#pragma omp for
+		#pragma omp for
 		for (i = 0; i < batchSize; ++i)
 		{
 			Feature features = { 0 };
@@ -348,7 +346,7 @@ void TrainBatch_parallel(LeNet5* lenet, image* inputs, uint8* labels, int batchS
 
 	merge:
 		if (local_buffer) {
-#pragma omp critical
+		#pragma omp critical
 			for (int j = 0; j < GETCOUNT(LeNet5); j++)
 				buffer[j] += local_buffer[j];
 			free(local_buffer);
@@ -362,12 +360,6 @@ void TrainBatch_parallel(LeNet5* lenet, image* inputs, uint8* labels, int batchS
 
 	free(buffer);
 }
-
-
-
-
-
-
 
 void Train(LeNet5 *lenet, image input, uint8 label)
 {

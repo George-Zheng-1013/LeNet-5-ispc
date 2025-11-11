@@ -29,53 +29,6 @@ int read_data(unsigned char(*data)[28][28], unsigned char label[], const int cou
 	return 0;
 }
 
-void training_parallel(LeNet5* lenet, image* train_data, uint8* train_label, int batch_size, int total_size)
-{
-	for (int b = 0; b < total_size; b += batch_size)
-	{
-		int actual_batch = (b + batch_size <= total_size) ? batch_size : (total_size - b);
-		for (int i = 0; i < actual_batch; ++i)
-		{
-			Feature features = { 0 };
-			Feature errors = { 0 };
-			LeNet5 deltas = { 0 };
-
-			// 1. 输入展平：32x32（含 padding）
-			double input_flat[1 * 32 * 32] = { 0 };
-			for (int h = 0; h < 28; ++h)
-				for (int w = 0; w < 28; ++w)
-					input_flat[(h + 2) * 32 + (w + 2)] = train_data[b + i][h][w] / 255.0;
-
-			// 2. 权重展平：6x1x5x5
-			double weight_flat[6 * 1 * 5 * 5];
-			for (int oc = 0; oc < 6; ++oc)
-				for (int ic = 0; ic < 1; ++ic)
-					for (int kh = 0; kh < 5; ++kh)
-						for (int kw = 0; kw < 5; ++kw)
-							weight_flat[oc * 1 * 5 * 5 + ic * 5 * 5 + kh * 5 + kw] = lenet->weight0_1[ic][oc][kh][kw];
-
-			// 3. ISPC 卷积前向（C1）
-			conv_forward_ispc(
-				6, 1, 32, 32, 5, 5, 28, 28,
-				input_flat,
-				(double*)features.layer1,
-				weight_flat,
-				lenet->bias0_1
-			);
-
-			// 4. 其余层串行（可后续并行）
-			forward(lenet, &features, relu);  // 注意：forward 中 C3 仍串行
-			load_target(&features, &errors, train_label[b + i]);
-			backward(lenet, &deltas, &errors, &features, relugrad);
-
-			// 5. 权重更新
-			double k = ALPHA / actual_batch;
-			for (int j = 0; j < sizeof(LeNet5) / sizeof(double); ++j)
-				((double*)lenet)[j] += k * ((double*)&deltas)[j];
-		}
-	}
-}
-
 double testing(LeNet5 *lenet, image *test_data, uint8 *test_label,int total_size)
 {
 	int right = 0, percent = 0;
@@ -107,8 +60,6 @@ int load(LeNet5 *lenet, char filename[])
 	fclose(fp);
 	return 0;
 }
-
-
 
 void foo()
 {
@@ -152,7 +103,6 @@ void foo()
         for (int b = 0; b < COUNT_TRAIN; b += batch_size)
         {
             int actual_batch = (b + batch_size <= COUNT_TRAIN) ? batch_size : (COUNT_TRAIN - b);
-            // 仅修改这一行：从 TrainBatch → TrainBatch_serial
             TrainBatch_serial(lenet_serial, train_data + b, train_label + b, actual_batch);
             int current_percent = (b + actual_batch) * 100 / COUNT_TRAIN;
             if (current_percent > percent)

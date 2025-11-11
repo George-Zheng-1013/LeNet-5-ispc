@@ -1,4 +1,3 @@
-// lenet.ispc
 inline varying double relu_ispc(varying double x) {
     return x > 0 ? x : 0;
 }
